@@ -1,15 +1,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { AnalyticSolid, OpenGeometry } from "opengeometry";
-import wasmURL from "opengeometry/opengeometry_bg.wasm?url";
-import { readManifest, FT_TO_M } from "./manifest.js";
-import { buildWalls, buildSlabs } from "./build-model.js";
-import { solidsToBinaryStl } from "./export-stl.js";
+import { createFragViewer } from "./frag-viewer.js";
 
 const el = (id) => document.getElementById(id);
 const status = el("status");
-
-await OpenGeometry.create({ wasmURL });
 
 const main = document.querySelector("main");
 const scene = new THREE.Scene();
@@ -31,16 +25,6 @@ scene.add(sun);
 const grid = new THREE.GridHelper(200, 200, 0x2b3038, 0x21252b);
 scene.add(grid);
 
-const groups = {
-  walls: new THREE.Group(),
-  voids: new THREE.Group(),
-  slabs: new THREE.Group(),
-};
-groups.voids.visible = false;
-for (const group of Object.values(groups)) scene.add(group);
-
-let built = [];
-
 function resize() {
   const { clientWidth: w, clientHeight: h } = main;
   renderer.setSize(w, h, false);
@@ -55,21 +39,24 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 
-// Handle for debugging and for headless render checks (scripts/shot.mjs).
-window.__viewer = { THREE, scene, camera, renderer, controls, groups, get built() { return built; } };
+const viewer = await createFragViewer({ scene, camera, controls });
 
-function clearScene() {
-  for (const solid of built) {
-    solid.removeFromParent();
-    solid.dispose();
-  }
-  built = [];
+// Handle for debugging and for headless render checks (scripts/shot.mjs).
+window.__viewer = { THREE, scene, camera, renderer, controls, viewer };
+
+function table(rows) {
+  return rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
 }
 
-function frameCamera() {
+/**
+ * Frames the model from the boxes Fragments computed for it, not from the
+ * scene graph: culling and LOD mean `model.object` may hold no resident
+ * geometry at the moment the load resolves.
+ */
+async function frameCamera(model) {
   const box = new THREE.Box3();
-  for (const solid of built) box.expandByObject(solid);
-  if (box.isEmpty()) return;
+  for (const item of await model.getBoxes()) box.union(item);
+  if (box.isEmpty()) return false;
   const size = box.getSize(new THREE.Vector3());
   const centre = box.getCenter(new THREE.Vector3());
   const radius = Math.max(size.x, size.z, size.y) || 10;
@@ -79,169 +66,153 @@ function frameCamera() {
   controls.target.copy(centre);
   controls.update();
   grid.position.set(centre.x, box.min.y, centre.z);
+  viewer.update(true);
+  return true;
 }
 
-function table(rows) {
-  return rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+function fail(message, detail = "") {
+  status.textContent = message;
+  status.style.display = "";
+  el("notes").textContent = detail || message;
 }
 
-function render(manifest) {
-  clearScene();
-  const model = manifest.models[0];
+async function show(relativePath, name) {
+  status.textContent = `loading ${name}…`;
+  status.style.display = "";
+  el("notes").textContent = "";
+  await viewer.clear();
 
-  const t0 = performance.now();
-  const { solids, voids, stats } = buildWalls({ AnalyticSolid }, model);
-  const { solids: slabs, skipped } = buildSlabs({ AnalyticSolid }, model);
-  const elapsed = performance.now() - t0;
-
-  for (const solid of solids) groups.walls.add(solid);
-  for (const solid of voids) {
-    solid.surface.material.transparent = true;
-    solid.surface.material.opacity = 0.35;
-    groups.voids.add(solid);
+  // Prefer a precomputed .frag: the conversion cost is then paid once per model
+  // at job time rather than once per page load. Falling back to converting the
+  // IFC in-browser is what keeps invariant I2 true — losing every .frag is
+  // harmless.
+  const fragPath = relativePath.replace(/\.ifc$/i, ".frag");
+  const fragResponse = await fetch(`/api/frag?path=${encodeURIComponent(fragPath)}`);
+  if (fragResponse.ok) {
+    status.textContent = `loading ${name}… (precomputed)`;
+    const builtAt = fragResponse.headers.get("x-frag-built-at");
+    try {
+      const model = await viewer.loadFrag(await fragResponse.arrayBuffer(), name);
+      if (model) {
+        const framed = await frameCamera(model);
+        el("source").innerHTML = `<code>${fragPath}</code>`;
+        el("stats").innerHTML = table([
+          ["source", "precomputed .frag"],
+          ["built", builtAt ? new Date(builtAt).toLocaleString() : "—"],
+          ["geometry", framed ? "present" : "none"],
+        ]);
+        if (framed) status.style.display = "none";
+        else fail(`${name}: no geometry in this model`);
+        return;
+      }
+    } catch (error) {
+      // The cache is never allowed to be terminal (invariant I2): a truncated
+      // or half-written .frag must cost a re-conversion, not the model. Clear
+      // first — a partially registered modelId would collide below.
+      await viewer.clear();
+      el("notes").textContent =
+        `Precomputed fragments were unusable (${error.message}); rebuilt from the IFC.`;
+    }
   }
-  for (const solid of slabs) groups.slabs.add(solid);
-  built = [...solids, ...voids, ...slabs];
 
-  applyDisplay();
-  frameCamera();
+  const response = await fetch(`/api/model?path=${encodeURIComponent(relativePath)}`);
+  if (!response.ok) {
+    const { error } = await response.json().catch(() => ({ error: response.statusText }));
+    fail(`failed: ${error}`);
+    return;
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
 
-  el("source").innerHTML = `<code>${manifest.sourcePath.split("/").pop()}</code><table>` + table([
-    ["interpretation", manifest.contentSha256.slice(0, 12) + "…"],
-    ["region", model.regionId],
-    ["storey", model.storeyName],
-    ["wall height", `${model.wallHeightFt} ft`],
-    ["plan span", `${model.spanFt[0].toFixed(1)} × ${model.spanFt[1].toFixed(1)} ft`],
-    ["scale", `${model.unitsPerFoot} u/ft`],
-    ["scale verified", model.scaleVerified ? "yes" : "<b style='color:var(--warn)'>no</b>"],
-  ]) + "</table>";
+  let model;
+  try {
+    // A multi-megabyte IFC takes seconds. Say so, or it reads as a hang.
+    model = await viewer.loadIfc(bytes, name, (fraction) => {
+      status.textContent = `converting ${name}… ${Math.round(fraction * 100)}%`;
+    });
+  } catch (error) {
+    fail(`conversion failed: ${error.message}`, error.stack ?? String(error));
+    return;
+  }
 
+  if (!model) {
+    fail(`${name}: the IFC converted but produced no model`);
+    return;
+  }
+
+  const framed = await frameCamera(model);
+  const categories = await model.getItemsWithGeometryCategories();
+
+  el("source").innerHTML = `<code>${relativePath}</code>`;
   el("stats").innerHTML = table([
-    ["walls in", model.walls.length],
-    ["wall solids", stats.pieces],
-    ["skipped", stats.skippedWalls],
-    ["openings", `${stats.openingsPlaced} / ${stats.openingsRequested}`],
-    ["voids", voids.length],
-    ["slabs", `${slabs.length} / ${model.footprints.length}`],
-    ["build time", `${elapsed.toFixed(0)} ms`],
+    ["ifc bytes", bytes.byteLength.toLocaleString()],
+    ["categories", Object.keys(categories).length],
+    ["geometry", framed ? "present" : "none"],
   ]);
 
-  const notes = [];
-  if (!model.scaleVerified) notes.push(`Scale unverified (${model.scaleConvention}) — dimensions are provisional.`);
-  if (stats.openingsDropped) notes.push(`${stats.openingsDropped} openings dropped as degenerate.`);
-  if (stats.mergedOpenings) notes.push(`${stats.mergedOpenings} overlapping opening groups merged.`);
-  for (const s of skipped) notes.push(`Footprint ${s.index} skipped: ${s.message}`);
-  for (const n of stats.notes.slice(0, 5)) notes.push(`${n.stage} wall ${n.wall}: ${n.message}`);
-  if (manifest.unresolved.length) notes.push(`${manifest.unresolved.length} unresolved issues recorded by archiAgent.`);
-  el("notes").textContent = notes.join("\n") || "none";
-
-  el("exportStl").disabled = built.length === 0;
+  if (!framed) {
+    // A valid IFC with a spatial tree and no elements: a site-plan outlier, or
+    // a run whose wall detection found nothing. Say which, rather than showing
+    // an empty canvas that looks like a crash.
+    fail(`${name}: no geometry in this IFC`, "The file parsed and has a spatial structure, but contains no building elements with geometry.");
+    return;
+  }
   status.style.display = "none";
 }
 
-function applyDisplay() {
-  groups.walls.visible = el("showWalls").checked;
-  groups.voids.visible = el("showVoids").checked;
-  groups.slabs.visible = el("showSlabs").checked;
-  grid.visible = el("showGrid").checked;
-  const edges = el("showEdges").checked;
-  for (const solid of built) solid.outline = edges;
-}
-for (const id of ["showWalls", "showVoids", "showSlabs", "showEdges", "showGrid"]) {
-  el(id).addEventListener("change", applyDisplay);
-}
+// --- selection: the class and GUID are archiAgent's own, read back out of the
+// --- IFC it authored, not a browser reconstruction's guesses.
 
-// --- picking: a wall carries the provenance archiAgent recorded for it -------
-
-const raycaster = new THREE.Raycaster();
-let highlighted = null;
-
-renderer.domElement.addEventListener("pointerdown", (event) => {
+const pointer = new THREE.Vector2();
+renderer.domElement.addEventListener("click", async (event) => {
+  const model = viewer.current();
+  if (!model) return;
   const rect = renderer.domElement.getBoundingClientRect();
-  const ndc = new THREE.Vector2(
+  pointer.set(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
   );
-  raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObjects([groups.walls, groups.slabs, groups.voids], true);
-
-  if (highlighted) {
-    highlighted.material.emissive.setHex(0x000000);
-    highlighted = null;
-  }
-  const hit = hits.find((h) => h.object.isMesh);
+  const hit = await viewer.raycast(pointer, renderer.domElement);
   if (!hit) {
-    el("pick").innerHTML = "<span class='none'>Click a wall</span>";
+    el("pick").innerHTML = "<span class='none'>Click an element</span>";
     return;
   }
-  highlighted = hit.object;
-  highlighted.material.emissive.setHex(0x334466);
-
-  const solid = hit.object.parent;
-  const d = solid.userData ?? {};
+  const [data] = await model.getItemsData([hit.localId]);
   el("pick").innerHTML = table([
-    ["name", solid.name ?? "—"],
-    ["ifc class", d.ifcClass ?? "—"],
-    ["part", d.part ?? "—"],
-    ["source layer", d.layer ?? "—"],
-    ["detector", d.detector ?? "—"],
-    ["thickness", d.thicknessFt ? `${d.thicknessFt} ft (${d.thicknessSource})` : "—"],
-    ["dxf handles", (d.sourceIds ?? []).join(", ") || "—"],
-    ["openings", (d.openings ?? []).join(", ") || "—"],
+    ["localId", hit.localId],
+    ["category", data?._category?.value ?? "—"],
+    ["GlobalId", data?._guid?.value ?? "—"],
+    ["Name", data?.Name?.value ?? "—"],
   ]);
 });
 
-// --- manifest loading -------------------------------------------------------
+// --- model loading ----------------------------------------------------------
 
 async function loadList() {
   const select = el("manifests");
   try {
-    const { root, manifests } = await (await fetch("/api/manifests")).json();
+    const { root, models } = await (await fetch("/api/models")).json();
     el("root").textContent = `scanning ${root}`;
-    if (manifests.length === 0) {
-      select.innerHTML = "<option value=''>no *.interpretation.json found</option>";
-      status.textContent = "No manifests found. Set ARCHIAGENT_OUT to your archiAgent --outputDir.";
-      status.style.display = "";
+    if (models.length === 0) {
+      select.innerHTML = "<option value=''>no *.ifc found</option>";
+      fail("No IFC files found. Set ARCHIAGENT_OUT to your archiAgent --outputDir.");
       return;
     }
-    select.innerHTML = manifests
-      .map((m) => `<option value="${encodeURIComponent(m.path)}">${m.name} — ${m.path}</option>`)
+    select.innerHTML = models
+      .map((m) => `<option value="${encodeURIComponent(m.path)}" data-name="${m.name}">${m.name} — ${m.path}</option>`)
       .join("");
-    await load(manifests[0].path);
+    await show(models[0].path, models[0].name);
   } catch (error) {
-    status.textContent = `Could not list manifests: ${error.message}`;
-    status.style.display = "";
-  }
-}
-
-async function load(relativePath) {
-  status.textContent = "building…";
-  status.style.display = "";
-  try {
-    const raw = await (await fetch(`/api/manifest?path=${encodeURIComponent(relativePath)}`)).json();
-    if (raw.error) throw new Error(raw.error);
-    render(readManifest(raw));
-  } catch (error) {
-    clearScene();
-    status.textContent = error.message;
-    status.style.display = "";
-    el("notes").textContent = error.stack ?? String(error);
+    fail(`Could not list models: ${error.message}`, error.stack ?? String(error));
   }
 }
 
 el("manifests").addEventListener("change", (event) => {
-  if (event.target.value) load(decodeURIComponent(event.target.value));
+  const option = event.target.selectedOptions[0];
+  if (option?.value) show(decodeURIComponent(option.value), option.dataset.name ?? "model");
 });
 el("reload").addEventListener("click", loadList);
-
-el("exportStl").addEventListener("click", () => {
-  const bytes = solidsToBinaryStl(built.filter((s) => s.parent?.visible));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "model/stl" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "archiagent-model.stl";
-  a.click();
-  URL.revokeObjectURL(url);
+el("showGrid").addEventListener("change", () => {
+  grid.visible = el("showGrid").checked;
 });
 
 await loadList();
