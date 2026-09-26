@@ -27,3 +27,18 @@ test("rejects a sibling directory that merely shares the root's prefix", () => {
 test("rejects a file that is not a .ifc", () => {
   assert.equal(resolveWithinRoot(ROOT, "run-1/plan.interpretation.json"), null);
 });
+
+test("serves a .frag when asked for that suffix", () => {
+  assert.equal(
+    resolveWithinRoot(ROOT, "run-1/plan.frag", ".frag"),
+    path.join(ROOT, "run-1/plan.frag"),
+  );
+});
+
+test("still rejects a traversal when the suffix is .frag", () => {
+  assert.equal(resolveWithinRoot(ROOT, "../../etc/passwd.frag", ".frag"), null);
+});
+
+test("rejects a .ifc when .frag was requested", () => {
+  assert.equal(resolveWithinRoot(ROOT, "run-1/plan.ifc", ".frag"), null);
+});

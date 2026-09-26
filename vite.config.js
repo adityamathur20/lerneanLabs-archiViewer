@@ -46,11 +46,11 @@ export async function findModels(dir, depth = 0) {
  * A traversal here would read any file on the machine, so this is a named,
  * tested function rather than an inline check.
  */
-export function resolveWithinRoot(root, requested) {
+export function resolveWithinRoot(root, requested, suffix = SUFFIX) {
   if (!requested) return null;
   const resolved = path.resolve(root, requested);
   if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
-  if (!resolved.toLowerCase().endsWith(SUFFIX)) return null;
+  if (!resolved.toLowerCase().endsWith(suffix)) return null;
   return resolved;
 }
 
@@ -83,6 +83,27 @@ function archiagentOutput() {
           res.statusCode = 404;
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify({ error: String(error?.message ?? error) }));
+        }
+      });
+
+      server.middlewares.use("/api/frag", async (req, res) => {
+        const requested = new URL(req.url, "http://localhost").searchParams.get("path");
+        const resolved = resolveWithinRoot(OUT_ROOT, requested, ".frag");
+        if (!resolved) {
+          res.statusCode = 403;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "only .frag files inside ARCHIAGENT_OUT are served" }));
+          return;
+        }
+        try {
+          const body = await readFile(resolved);
+          res.setHeader("content-type", "application/octet-stream");
+          res.end(body);
+        } catch {
+          // Absent is normal: not every model has been precomputed.
+          res.statusCode = 404;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "no precomputed fragments" }));
         }
       });
     },

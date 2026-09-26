@@ -82,6 +82,28 @@ async function show(relativePath, name) {
   el("notes").textContent = "";
   await viewer.clear();
 
+  // Prefer a precomputed .frag: the conversion cost is then paid once per model
+  // at job time rather than once per page load. Falling back to converting the
+  // IFC in-browser is what keeps invariant I2 true — losing every .frag is
+  // harmless.
+  const fragPath = relativePath.replace(/\.ifc$/i, ".frag");
+  const fragResponse = await fetch(`/api/frag?path=${encodeURIComponent(fragPath)}`);
+  if (fragResponse.ok) {
+    status.textContent = `loading ${name}… (precomputed)`;
+    const model = await viewer.loadFrag(await fragResponse.arrayBuffer(), name);
+    if (model) {
+      const framed = await frameCamera(model);
+      el("source").innerHTML = `<code>${fragPath}</code>`;
+      el("stats").innerHTML = table([
+        ["source", "precomputed .frag"],
+        ["geometry", framed ? "present" : "none"],
+      ]);
+      if (framed) status.style.display = "none";
+      else fail(`${name}: no geometry in this model`);
+      return;
+    }
+  }
+
   const response = await fetch(`/api/model?path=${encodeURIComponent(relativePath)}`);
   if (!response.ok) {
     const { error } = await response.json().catch(() => ({ error: response.statusText }));
