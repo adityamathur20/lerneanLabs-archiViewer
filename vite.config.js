@@ -1,5 +1,8 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { fragIsCurrent } from "./scripts/frag-cache.mjs";
+
+export { fragIsCurrent };
 
 /**
  * Serves archiAgent output straight from disk so the viewer reads the same
@@ -95,9 +98,21 @@ function archiagentOutput() {
           res.end(JSON.stringify({ error: "only .frag files inside ARCHIAGENT_OUT are served" }));
           return;
         }
+        // A cache that cannot be shown to match its input must not be served:
+        // otherwise a stale .frag silently outranks the authored IFC (I2).
+        const ifcPath = resolved.replace(/\.frag$/i, ".ifc");
+        if (!(await fragIsCurrent(resolved, ifcPath))) {
+          res.statusCode = 404;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "no current precomputed fragments" }));
+          return;
+        }
         try {
           const body = await readFile(resolved);
           res.setHeader("content-type", "application/octet-stream");
+          // Provenance, so the panel can say WHICH build this came from.
+          const sidecar = JSON.parse(await readFile(`${resolved}.json`, "utf8"));
+          if (sidecar.builtAt) res.setHeader("x-frag-built-at", sidecar.builtAt);
           res.end(body);
         } catch {
           // Absent is normal: not every model has been precomputed.

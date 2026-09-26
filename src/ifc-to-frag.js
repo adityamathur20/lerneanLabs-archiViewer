@@ -17,7 +17,7 @@ export const FRAG_MIN_BYTES = 1024;
  * One module serves both tiers, so it resolves this itself rather than making
  * every call site pass it.
  */
-function wasmLocation() {
+export function wasmLocation() {
   if (typeof window !== "undefined") {
     return { path: "/node_modules/web-ifc/", absolute: false };
   }
@@ -28,20 +28,41 @@ function wasmLocation() {
 }
 
 /**
+ * The web-ifc loader settings the importer will actually use. Exported so a
+ * test can drive web-ifc with the same settings rather than a copy that could
+ * drift from them.
+ */
+export function webIfcSettings() {
+  return new IfcImporter().webIfcSettings;
+}
+
+/**
  * IfcImporter translates the model to the origin by default. archiAgent keeps
  * the source drawing's origin, so without this a real plan sits tens of
  * thousands of feet out and depth precision collapses. Exposed so a test can
  * assert it rather than trust the library's default.
+ *
+ * Whether it has the claimed EFFECT is measured in tests/origin.test.mjs;
+ * this only reports the setting.
  */
 export function coordinateToOrigin() {
-  return new IfcImporter().webIfcSettings.COORDINATE_TO_ORIGIN === true;
+  return webIfcSettings().COORDINATE_TO_ORIGIN === true;
 }
 
 export async function ifcToFrag(bytes, { onProgress = null } = {}) {
   const serializer = new IfcImporter();
   serializer.wasm = wasmLocation();
   if (onProgress) onProgress(0);
-  const frag = await serializer.process({ bytes, raw: false });
+  const frag = await serializer.process({
+    bytes,
+    raw: false,
+    // The importer's own callback, so a multi-megabyte conversion reports real
+    // intermediate progress instead of sitting at 0% until it finishes — which
+    // is indistinguishable from a hang.
+    progressCallback: onProgress
+      ? (progress) => onProgress(Math.min(Math.max(progress, 0), 1))
+      : undefined,
+  });
   if (onProgress) onProgress(1);
   return frag;
 }

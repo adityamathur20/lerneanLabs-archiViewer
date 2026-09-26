@@ -23,7 +23,7 @@ test("converts an authored IFC into a non-trivial fragments buffer", async (t) =
   );
 });
 
-test("reports progress at least once", async (t) => {
+test("reports real intermediate progress, not just 0 and 1", async (t) => {
   if (!FIXTURE || !existsSync(FIXTURE)) {
     t.skip("set ARCHIAGENT_IFC to an authored .ifc to run this test");
     return;
@@ -32,10 +32,18 @@ test("reports progress at least once", async (t) => {
   const seen = [];
   await ifcToFrag(bytes, { onProgress: (f) => seen.push(f) });
 
-  assert.ok(seen.length > 0, "onProgress was never called");
   assert.ok(
     seen.every((f) => f >= 0 && f <= 1),
     `progress fractions out of range: ${seen.join(", ")}`,
+  );
+  // Review Focus #5: a multi-megabyte IFC takes seconds. Bookending the await
+  // with 0 and 1 is indistinguishable from a hang for the whole conversion,
+  // which is the exact failure that focus item exists to prevent. Require the
+  // importer's own progressCallback to be driving this.
+  const distinct = new Set(seen);
+  assert.ok(
+    distinct.size > 2,
+    `expected real intermediate progress, got only ${[...distinct].join(", ")}`,
   );
 });
 

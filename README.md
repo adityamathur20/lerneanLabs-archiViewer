@@ -35,12 +35,28 @@ python -m archiagent --dxfFilePath plan.dxf --outputDir out
 
 ```bash
 npm test                                      # unit tests (node:test)
-ARCHIAGENT_IFC=out/plan.ifc npm test          # …including the conversion tests
 npm run smoke -- out/plan.ifc                 # full conversion under Node
 ```
 
-`npm test` skips the conversion tests unless `ARCHIAGENT_IFC` points at an
-authored `.ifc`; fixtures are the pipeline's own output and too large to commit.
+Several tests need real fixtures and skip without them. Fixtures are the
+pipeline's own output and too large to commit, so point the env vars at yours:
+
+```bash
+ARCHIAGENT_IFC="out/plan.ifc" \
+ARCHIAGENT_IFC_2="out/another.ifc" \
+ARCHIAGENT_IFC_FAR="out/far-from-origin.ifc" \
+  npm test
+```
+
+- `ARCHIAGENT_IFC` — any authored plan: conversion, progress and build tests.
+- `ARCHIAGENT_IFC_2` — a *different* plan, so the cache test can prove a `.frag`
+  built from one IFC is rejected for another.
+- `ARCHIAGENT_IFC_FAR` — a plan whose coordinates sit far from the origin, which
+  is what makes the recentring test meaningful. **A plan already at the origin
+  cannot fail that test**, so pick deliberately: in this corpus
+  `wallUpdate_dxfBased_ifcOutput/M.r Premg Agarwal  Baglow 90x50.ifc` peaks
+  around 10608, while `dxfBased_ifcOutput/Floor Plan.ifc` is already centred.
+
 `smoke` reads the IFC, converts it to fragments and exits non-zero if the buffer
 is empty. Useful in CI, where there is no WebGL.
 
@@ -68,6 +84,28 @@ would hide.
   on 0.0.78 and only the browser breaks. Re-check when a later version ships.
 - `three` must be `>=0.182.0`; fragments requires it as a peer.
 
+## Precomputing fragments
+
+Converting in the browser costs a few hundred milliseconds per page load. Build
+the `.frag` once instead:
+
+```bash
+npm run build:frag -- out/plan.ifc out/plan.frag
+```
+
+That writes `plan.frag` plus a `plan.frag.json` sidecar recording the IFC's
+SHA-256 and the fragments / web-ifc versions that produced it. The dev server
+serves the cache from `/api/frag` **only when that sidecar still matches** the
+`.ifc` beside it and the installed libraries; otherwise it returns 404 and the
+viewer converts the IFC itself.
+
+That check is the point, not bookkeeping. Without it a `.frag` left over from a
+previous archiAgent run would be served in preference to the freshly authored
+IFC, and you would review the wrong building with no warning — the cache would
+have become the source of truth, which is exactly what invariant I2 forbids. A
+corrupt or half-written `.frag` likewise falls back to the IFC rather than
+failing the load.
+
 ## Architecture
 
 See `lerneanLabs-archiAgent/docs/superpowers/specs/2026-09-26-webapp-three-tier-design.md`.
@@ -84,9 +122,12 @@ ifcopenshell stays canonical, and they never meet at runtime.** In particular:
 
 ## Known gaps
 
-- **Conversion happens in the browser.** Fine for one plan at a time; Phase 2
-  of the spec moves it to a server-side build step so the cost is paid once per
-  model instead of once per page load.
+- **Conversion falls back to the browser** when no current `.frag` exists. Fine
+  for one plan at a time; precompute with `npm run build:frag` (above) to pay
+  the cost once per model instead of once per page load.
+- **Conversion runs on the main thread.** A large IFC will freeze the UI while
+  it converts, and the progress percentage may not repaint. Moving it to a
+  worker is the real fix.
 - **`npm run build` is not wired for production.** The browser resolves web-ifc's
   wasm from `/node_modules/web-ifc/`, which Vite serves in dev but not in a
   production build. Copy the wasm into `public/` when a build is first shipped.

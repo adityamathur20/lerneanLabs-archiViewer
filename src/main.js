@@ -90,17 +90,28 @@ async function show(relativePath, name) {
   const fragResponse = await fetch(`/api/frag?path=${encodeURIComponent(fragPath)}`);
   if (fragResponse.ok) {
     status.textContent = `loading ${name}… (precomputed)`;
-    const model = await viewer.loadFrag(await fragResponse.arrayBuffer(), name);
-    if (model) {
-      const framed = await frameCamera(model);
-      el("source").innerHTML = `<code>${fragPath}</code>`;
-      el("stats").innerHTML = table([
-        ["source", "precomputed .frag"],
-        ["geometry", framed ? "present" : "none"],
-      ]);
-      if (framed) status.style.display = "none";
-      else fail(`${name}: no geometry in this model`);
-      return;
+    const builtAt = fragResponse.headers.get("x-frag-built-at");
+    try {
+      const model = await viewer.loadFrag(await fragResponse.arrayBuffer(), name);
+      if (model) {
+        const framed = await frameCamera(model);
+        el("source").innerHTML = `<code>${fragPath}</code>`;
+        el("stats").innerHTML = table([
+          ["source", "precomputed .frag"],
+          ["built", builtAt ? new Date(builtAt).toLocaleString() : "—"],
+          ["geometry", framed ? "present" : "none"],
+        ]);
+        if (framed) status.style.display = "none";
+        else fail(`${name}: no geometry in this model`);
+        return;
+      }
+    } catch (error) {
+      // The cache is never allowed to be terminal (invariant I2): a truncated
+      // or half-written .frag must cost a re-conversion, not the model. Clear
+      // first — a partially registered modelId would collide below.
+      await viewer.clear();
+      el("notes").textContent =
+        `Precomputed fragments were unusable (${error.message}); rebuilt from the IFC.`;
     }
   }
 

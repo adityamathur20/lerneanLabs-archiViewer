@@ -8,6 +8,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { ifcToFrag, FRAG_MIN_BYTES } from "../src/ifc-to-frag.js";
+import { writeSidecar } from "./frag-cache.mjs";
 
 const [input, output] = process.argv.slice(2);
 
@@ -30,4 +31,6 @@ if (frag.byteLength <= FRAG_MIN_BYTES) {
 }
 
 await writeFile(output, frag);
+// The sidecar is what lets the server tell a current cache from a stale one.
+await writeSidecar(output, input);
 console.log(`OK ${input} (${bytes.byteLength} B) -> ${output} (${frag.byteLength} B) in ${Date.now() - started} ms`);

@@ -28,7 +28,7 @@ export async function createFragViewer({ scene, camera, controls }) {
     fragments.update(true);
   });
 
-  controls.addEventListener("update", () => fragments.update());
+  controls.addEventListener("change", () => fragments.update());
 
   return {
     async loadIfc(bytes, modelId, onProgress) {
