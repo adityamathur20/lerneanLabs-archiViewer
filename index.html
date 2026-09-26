@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>archiAgent · OpenGeometry viewer</title>
+    <style>
+      :root {
+        --bg: #14161a;
+        --panel: #1c1f25;
+        --line: #2b3038;
+        --text: #e6e8ec;
+        --muted: #949aa6;
+        --accent: #6c8cff;
+        --warn: #e8833a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+      }
+      aside {
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+        padding: 16px;
+        overflow-y: auto;
+      }
+      h1 { font-size: 14px; margin: 0 0 2px; letter-spacing: .2px; }
+      .sub { color: var(--muted); font-size: 11px; margin-bottom: 18px; }
+      h2 {
+        font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
+        color: var(--muted); margin: 20px 0 8px; font-weight: 600;
+      }
+      select, button {
+        width: 100%; background: #23272f; color: var(--text);
+        border: 1px solid var(--line); border-radius: 6px;
+        padding: 7px 9px; font: inherit;
+      }
+      button { cursor: pointer; margin-top: 6px; }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: .45; cursor: default; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 2px 0; vertical-align: top; }
+      td:first-child { color: var(--muted); width: 45%; }
+      td:last-child { font-variant-numeric: tabular-nums; }
+      label.row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 3px 0; cursor: pointer;
+      }
+      #notes { color: var(--warn); font-size: 11px; white-space: pre-wrap; }
+      #pick { font-size: 11px; }
+      #pick .none { color: var(--muted); }
+      #status {
+        position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        color: var(--muted); font-size: 12px;
+      }
+      main { position: relative; }
+      canvas { display: block; }
+      code { color: var(--accent); font-size: 11px; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>archiAgent → OpenGeometry</h1>
+      <div class="sub">Frozen interpretation rebuilt in the browser kernel</div>
+
+      <h2>Manifest</h2>
+      <select id="manifests"><option value="">loading…</option></select>
+      <button id="reload">Reload from disk</button>
+      <div class="sub" id="root" style="margin-top:8px"></div>
+
+      <h2>Source</h2>
+      <div id="source"><span class="none">—</span></div>
+
+      <h2>Build</h2>
+      <table id="stats"></table>
+
+      <h2>Display</h2>
+      <label class="row"><input type="checkbox" id="showWalls" checked /> Walls</label>
+      <label class="row"><input type="checkbox" id="showVoids" /> Opening voids</label>
+      <label class="row"><input type="checkbox" id="showSlabs" checked /> Floor slabs</label>
+      <label class="row"><input type="checkbox" id="showEdges" checked /> Edges</label>
+      <label class="row"><input type="checkbox" id="showGrid" checked /> Grid</label>
+
+      <h2>Selection</h2>
+      <div id="pick"><span class="none">Click a wall</span></div>
+
+      <h2>Export</h2>
+      <button id="exportStl" disabled>Download STL</button>
+
+      <h2>Notes</h2>
+      <div id="notes"></div>
+    </aside>
+    <main><div id="status">initialising kernel…</div></main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

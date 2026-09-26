@@ -1,0 +1,22 @@
+{
+  "name": "archiagent-viewer",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "smoke": "node scripts/smoke.mjs",
+    "shot": "node scripts/shot.mjs"
+  },
+  "description": "Rebuilds an archiAgent frozen interpretation as OpenGeometry solids in the browser.",
+  "dependencies": {
+    "opengeometry": "^2.0.16",
+    "three": "^0.168.0",
+    "vite": "^6.4.3"
+  },
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "puppeteer-core": "^24.43.1"
+  }
+}
