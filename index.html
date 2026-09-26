@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.svg" />
-    <title>archiAgent · OpenGeometry viewer</title>
+    <title>archiAgent · IFC viewer</title>
     <style>
       :root {
         --bg: #14161a;
@@ -66,10 +66,10 @@
   </head>
   <body>
     <aside>
-      <h1>archiAgent → OpenGeometry</h1>
-      <div class="sub">Frozen interpretation rebuilt in the browser kernel</div>
+      <h1>archiAgent → Fragments</h1>
+      <div class="sub">The authored IFC, rendered as written</div>
 
-      <h2>Manifest</h2>
+      <h2>Model</h2>
       <select id="manifests"><option value="">loading…</option></select>
       <button id="reload">Reload from disk</button>
       <div class="sub" id="root" style="margin-top:8px"></div>
@@ -77,26 +77,19 @@
       <h2>Source</h2>
       <div id="source"><span class="none">—</span></div>
 
-      <h2>Build</h2>
+      <h2>Model info</h2>
       <table id="stats"></table>
 
       <h2>Display</h2>
-      <label class="row"><input type="checkbox" id="showWalls" checked /> Walls</label>
-      <label class="row"><input type="checkbox" id="showVoids" /> Opening voids</label>
-      <label class="row"><input type="checkbox" id="showSlabs" checked /> Floor slabs</label>
-      <label class="row"><input type="checkbox" id="showEdges" checked /> Edges</label>
       <label class="row"><input type="checkbox" id="showGrid" checked /> Grid</label>
 
       <h2>Selection</h2>
-      <div id="pick"><span class="none">Click a wall</span></div>
-
-      <h2>Export</h2>
-      <button id="exportStl" disabled>Download STL</button>
+      <div id="pick"><span class="none">Click an element</span></div>
 
       <h2>Notes</h2>
       <div id="notes"></div>
     </aside>
-    <main><div id="status">initialising kernel…</div></main>
+    <main><div id="status">loading…</div></main>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
