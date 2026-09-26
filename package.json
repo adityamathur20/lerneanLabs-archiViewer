@@ -7,7 +7,8 @@
     "preview": "vite preview",
     "test": "node --test tests/",
     "smoke": "node scripts/smoke.mjs",
-    "shot": "node scripts/shot.mjs"
+    "shot": "node scripts/shot.mjs",
+    "build:frag": "node scripts/build-frag.mjs"
   },
   "description": "Renders archiAgent's authored IFC in the browser with @thatopen/fragments.",
   "dependencies": {
