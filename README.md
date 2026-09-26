@@ -1,15 +1,16 @@
 # archiagent-viewer
 
-Rebuilds an archiAgent **frozen interpretation** as OpenGeometry solids in the
-browser, and renders it with Three.js. No Rust toolchain: the published
-`opengeometry` npm package ships the prebuilt `.wasm`.
+Renders archiAgent's **authored IFC** in the browser with
+[`@thatopen/fragments`](https://github.com/ThatOpen/engine_fragment). No
+geometry is reconstructed here: archiAgent already resolved wall junctions,
+split walls at openings and wrote `IfcRelVoidsElement`, and web-ifc meshes that
+faithfully.
 
 ```
-archiAgent (Python)                           this app (browser)
-  DXF/PDF → classify → walls, openings          readManifest()
-  → *.interpretation.json  ────────────────→    buildWalls()  → AnalyticSolid
-                                                buildSlabs()  → AnalyticSolid
-                                                Three.js scene + STL download
+archiAgent (Python)                          this app (browser)
+  DXF/PDF → classify → junctions → spaces      fetch plan.ifc
+  → ifcopenshell → plan.ifc  ──────────────→   IfcImporter → .frag
+                                               FragmentsModels → Three.js
 ```
 
 ## Run
@@ -21,62 +22,74 @@ ARCHIAGENT_OUT=/path/to/your/archiagent/outputDir npm run dev
 ```
 
 `ARCHIAGENT_OUT` defaults to the parent directory. The dev server scans it (3
-levels deep) for `*.interpretation.json` and lists what it finds; requests are
-confined to that root.
+levels deep) for `*.ifc` and lists what it finds; requests are confined to that
+root and to `.ifc` files.
 
-Produce a manifest with archiAgent's freeze step:
+Produce an IFC with archiAgent:
 
 ```bash
-python -m archiagent --dxfFilePath plan.dxf --outputDir out --freeze-only
+python -m archiagent --dxfFilePath plan.dxf --outputDir out
 ```
 
 ## Verify without a browser
 
 ```bash
-npm run smoke -- "out/plan.interpretation.json"
+npm test                                      # unit tests (node:test)
+ARCHIAGENT_IFC=out/plan.ifc npm test          # …including the conversion tests
+npm run smoke -- out/plan.ifc                 # full conversion under Node
 ```
 
-Builds the whole model through the kernel under Node — extrusions, opening
-decomposition, extents, mesh counts, STL byte layout — and exits non-zero on
-failure. Useful in CI, where there is no WebGL.
+`npm test` skips the conversion tests unless `ARCHIAGENT_IFC` points at an
+authored `.ifc`; fixtures are the pipeline's own output and too large to commit.
+`smoke` reads the IFC, converts it to fragments and exits non-zero if the buffer
+is empty. Useful in CI, where there is no WebGL.
 
 To check the render itself (needs Google Chrome installed):
 
 ```bash
-npm run dev &
-npm run shot -- http://localhost:5173 /tmp/shot.png [manifestIndex]
+ARCHIAGENT_OUT=.. npm run dev &
+npm run shot -- http://localhost:5173 /tmp/shot.png
 ```
 
-## How it maps
+`shot` fails the build unless the status overlay cleared and the canvas is
+actually drawing geometry, so it catches a blank render that a screenshot alone
+would hide.
 
-| manifest | becomes |
-|---|---|
-| `walls[]` (centreline, `thickness_ft`) | one `linearExtrusion` per wall piece |
-| `openings[]` (`host_wall_index`, extent, `sill_ft`, `height_ft`) | wall split into pier / apron / lintel, plus a void solid |
-| `footprints[]` | floor slab, 150 mm |
-| `wall_height_ft`, `elevation_ft` | extrusion height and base |
+## Dependency pins
 
-Coordinates are converted from plan feet to metres and recentred on the model's
-own bounding box — archiAgent keeps the source drawing's origin, which puts a
-real plan tens of thousands of feet from (0,0) and wrecks depth precision.
+- **`@thatopen/fragments` is pinned exactly.** The `.frag` format version is
+  embedded in the files it writes.
+- **`web-ifc` is pinned to `0.0.77` deliberately.** It is a *peer* dependency of
+  fragments, so the pin is ours to hold. Version `0.0.78` ships a browser `.wasm`
+  whose `StreamMeshes` binding takes 3 arguments while its own `web-ifc-api.js`
+  calls it with 4, so conversion in the browser throws
+  `BindingError: function StreamMeshes called with 4 arguments, expected 3`.
+  Its Node wasm is built consistently — which is why the Node smoke test passes
+  on 0.0.78 and only the browser breaks. Re-check when a later version ships.
+- `three` must be `>=0.182.0`; fragments requires it as a peer.
 
-**Openings are resolved by decomposition, not boolean subtraction.** archiAgent
-splits walls at opening boundaries, so a door's host wall is usually *exactly*
-the door gap. A cutter built there is coextensive with the wall's end faces and
-OpenGeometry's exact kernel rejects it (`cuboid arrangement contains
-sub-tolerance features`). Splitting the wall along its axis instead is exact,
-faster, and produces the pieces an IFC wall + `IfcOpeningElement` pair needs.
+## Architecture
+
+See `lerneanLabs-archiAgent/docs/superpowers/specs/2026-09-26-webapp-three-tier-design.md`.
+The rule is: **Fragments in the browser, ifc-lite as a server-side library,
+ifcopenshell stays canonical, and they never meet at runtime.** In particular:
+
+- `plan.ifc` has exactly one writer, ifcopenshell in Python. This app never writes IFC.
+- `.frag` is a render cache derived from `plan.ifc` by a pure function. Losing it is harmless.
+- The interpretation manifest is *not* read by this app at all any more. When it
+  returns it will be for provenance only — never as geometry input.
+- The Fragments runtime stays behind `src/frag-viewer.js`. That facade is the
+  seam Phase 7 attaches to, when ifc-lite's MCP viewer tools drive this scene
+  over `@ifc-lite/embed-protocol`. Do not inline it into `main.js`.
 
 ## Known gaps
 
-- **Wall junctions butt, they do not join.** Each segment is an independent box,
-  so L/T/X corners show a seam. Resolving these needs the junction rules from
-  `archiagent/geometry/junctions.py` applied here.
-- **No IFC export.** `AnalyticSolid.exportIfc()` writes a single
-  `IfcBuildingElementProxy` with no spatial hierarchy, and `WorldGraph.exportIfc()`
-  — which does write a proper spatial tree — rejects analytic solids. Keep
-  archiAgent's ifcopenshell output as the canonical IFC for now. STL export works
-  and is wired up.
-- **One model per manifest is rendered** (`models[0]` plus the picker); a
-  multi-region manifest shows one region at a time.
-- Wall openings are assumed rectangular and vertical.
+- **Conversion happens in the browser.** Fine for one plan at a time; Phase 2
+  of the spec moves it to a server-side build step so the cost is paid once per
+  model instead of once per page load.
+- **`npm run build` is not wired for production.** The browser resolves web-ifc's
+  wasm from `/node_modules/web-ifc/`, which Vite serves in dev but not in a
+  production build. Copy the wasm into `public/` when a build is first shipped.
+- **No editing.** See §8 of the spec for the seam it will attach to.
+- **No STL export.** Removed: it existed only because the previous kernel could
+  not export usable IFC. If you need a mesh, ask for glTF.
