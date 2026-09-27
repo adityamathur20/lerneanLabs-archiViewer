@@ -1,5 +1,6 @@
 """Tests for the final-review findings. Each reproduces a defect first."""
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from archiagent_service import auth
@@ -212,3 +213,56 @@ def test_listing_pages_with_a_cursor(client, pg_session, alice):
     ).json()
     assert len(second["jobs"]) == 2
     assert {j["job_id"] for j in first["jobs"]} & {j["job_id"] for j in second["jobs"]} == set()
+
+
+# --- Phase 4 review, Important 4: do not accept what this worker cannot convert
+
+def test_dwg_is_refused_when_no_converter_is_available(monkeypatch):
+    """Accepting a DWG on a worker without ODA reinstates exactly the failure
+    the Phase 3 refusal existed to prevent: a job queued now and failing
+    minutes later with a generic error."""
+    from archiagent_service import uploads
+
+    monkeypatch.setattr(uploads, "dwg_supported", lambda: False)
+    with pytest.raises(HTTPException) as caught:
+        uploads.validate_upload("plan.dwg", 1000, 10_000)
+    assert caught.value.status_code == 400
+    assert "convert" in caught.value.detail.lower()
+
+
+def test_dwg_is_accepted_when_a_converter_is_available(monkeypatch):
+    from archiagent_service import uploads
+
+    monkeypatch.setattr(uploads, "dwg_supported", lambda: True)
+    assert uploads.validate_upload("plan.dwg", 1000, 10_000) == ".dwg"
+
+
+# --- Phase 4 review, Important 10: provenance on the failure path too --------
+
+def test_a_failed_dwg_job_still_records_that_it_was_a_dwg(pg_engine, s3, monkeypatch):
+    from sqlalchemy.orm import Session
+
+    from archiagent_service import worker
+
+    session = Session(bind=pg_engine)
+    tenant = Tenant(id=ulid(), name="dwg-fail")
+    session.add(tenant)
+    session.flush()
+    job = Job(id=ulid(), tenant_id=tenant.id, status="queued", source_filename="plan.dwg")
+    session.add(job)
+    session.commit()
+
+    monkeypatch.setattr(worker.get_store(), "download",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("storage gone")))
+    try:
+        with pytest.raises(RuntimeError):
+            worker.run_job(job.id)
+        session.expire_all()
+        finished = session.get(Job, job.id)
+        assert finished.status == "failed"
+        assert finished.converted_from_dwg is True
+    finally:
+        session.query(Job).filter_by(tenant_id=tenant.id).delete()
+        session.query(Tenant).filter_by(id=tenant.id).delete()
+        session.commit()
+        session.close()

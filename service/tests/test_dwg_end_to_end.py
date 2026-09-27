@@ -37,6 +37,10 @@ def test_a_dwg_upload_produces_an_ifc(pg_engine, s3):
         assert finished.status == "succeeded", finished.error
         assert finished.converted_from_dwg is True
         assert "plan.ifc" in finished.artifacts, finished.artifacts
+        # The converted DXF is kept: ODA's output is not byte-deterministic, so
+        # it is the only way to reproduce or debug a DWG-derived result.
+        assert "plan.dxf" in finished.artifacts, finished.artifacts
+        assert get_store().get(f"{prefix}plan.dxf")[:512].count(b"SECTION") > 0
         assert get_store().get(f"{prefix}plan.ifc").startswith(b"ISO-10303-21;")
         print(f"\nartifacts: {finished.artifacts}  acceptance: {finished.acceptance}")
     finally:
