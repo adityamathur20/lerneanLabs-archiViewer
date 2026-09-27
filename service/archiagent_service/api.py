@@ -1,5 +1,59 @@
-"""HTTP surface. Thin: it validates, authorizes, enqueues and redirects."""
-from fastapi import FastAPI
+"""HTTP surface. Thin: it validates, authorizes, enqueues and redirects.
+
+It never does geometry, never imports archiagent, and never proxies artifact
+bytes — a 400 MB IFC goes straight from object storage to the client.
+"""
+from pathlib import PurePosixPath
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from archiagent_service.auth import current_tenant, db_session, owned_job
+from archiagent_service.config import get_settings
+from archiagent_service.models import Job, Tenant, ulid
+from archiagent_service.queue import admit, get_queue
+from archiagent_service.storage import get_store
+from archiagent_service.uploads import validate_upload
+
+
+class UploadRequest(BaseModel):
+    filename: str
+    size: int
+
+
+class StartRequest(BaseModel):
+    units_per_foot: float | None = None
+    height_ft: float | None = None
+    walls: list[str] | None = None
+
+
+def job_json(job: Job) -> dict:
+    """Spec §3.2."""
+    return {
+        "schema_version": 1,
+        "job_id": job.id,
+        "tenant_id": job.tenant_id,
+        "status": job.status,
+        "source": {
+            "filename": job.source_filename,
+            "bytes": job.source_bytes,
+            "converted_from_dwg": job.converted_from_dwg,
+        },
+        "options": job.options,
+        "exit_code": job.exit_code,
+        "acceptance": job.acceptance,
+        "artifacts": job.artifacts,
+        "timings_ms": job.timings_ms,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
+
+
+def _source_key(job: Job) -> str:
+    return f"{job.prefix}source{PurePosixPath(job.source_filename).suffix.lower()}"
 
 
 def create_app() -> FastAPI:
@@ -8,6 +62,101 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/v1/uploads")
+    def create_upload(
+        body: UploadRequest,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        settings = get_settings()
+        suffix = validate_upload(body.filename, body.size, settings.max_upload_bytes)
+
+        job = Job(
+            id=ulid(),
+            tenant_id=tenant.id,
+            status="pending",
+            source_filename=body.filename,
+            source_bytes=body.size,
+        )
+        session.add(job)
+        session.flush()
+
+        key = f"{job.prefix}source{suffix}"
+        # Presigned PUT: the bytes go straight to object storage (spec §7.3).
+        return {"job_id": job.id, "key": key, "upload_url": get_store().presign_put(key)}
+
+    @app.post("/v1/jobs/{job_id}/start")
+    def start_job(
+        job_id: str,
+        body: StartRequest,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        settings = get_settings()
+        job = owned_job(session, tenant, job_id)
+        if job.status != "pending":
+            raise HTTPException(status_code=409, detail=f"job is already {job.status}")
+        if not get_store().exists(_source_key(job)):
+            raise HTTPException(status_code=409, detail="source was never uploaded")
+        if not admit(session, tenant.id, settings.tenant_max_concurrent):
+            raise HTTPException(
+                status_code=429,
+                detail=f"at most {settings.tenant_max_concurrent} concurrent jobs per tenant",
+            )
+
+        job.options = body.model_dump(exclude_none=True)
+        job.status = "queued"
+        session.flush()
+        get_queue().enqueue("archiagent_service.worker.run_job", job.id)
+        return {"status": job.status}
+
+    @app.get("/v1/jobs/{job_id}")
+    def get_job(
+        job_id: str,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        return job_json(owned_job(session, tenant, job_id))
+
+    @app.get("/v1/jobs")
+    def list_jobs(
+        limit: int = 50,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        rows = (
+            session.query(Job)
+            .filter_by(tenant_id=tenant.id)
+            .order_by(Job.id.desc())
+            .limit(min(limit, 200))
+            .all()
+        )
+        return {"jobs": [job_json(job) for job in rows]}
+
+    @app.get("/v1/jobs/{job_id}/artifacts/{name}")
+    def get_artifact(
+        job_id: str,
+        name: str,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ):
+        job = owned_job(session, tenant, job_id)
+        if name not in job.artifacts:
+            raise HTTPException(status_code=404, detail=f"no artifact {name} for this job")
+        # 302, never a proxy.
+        return RedirectResponse(get_store().presign_get(f"{job.prefix}{name}"), status_code=302)
+
+    @app.delete("/v1/jobs/{job_id}")
+    def delete_job(
+        job_id: str,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        job = owned_job(session, tenant, job_id)
+        removed = get_store().delete_prefix(job.prefix)
+        session.delete(job)
+        return {"deleted": True, "objects_removed": removed}
 
     return app
 
