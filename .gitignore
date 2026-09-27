@@ -2,3 +2,6 @@ node_modules/
 dist/
 .superpowers/
 *.frag
+service/.venv/
+service/**/__pycache__/
+.pytest_cache/
