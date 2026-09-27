@@ -1,3 +1,4 @@
+import os
 import socket
 from pathlib import Path
 
@@ -6,12 +7,31 @@ import pytest
 from archiagent_service.config import get_settings
 
 
+def require_services() -> bool:
+    """When set, an unreachable service is a FAILURE, not a skip.
+
+    Skipping is right for a developer without Docker running. It is wrong for
+    CI, where "39 skipped, exit 0" is indistinguishable from a green suite —
+    which is exactly how one merge here verified nothing at all.
+    """
+    return os.environ.get("ARCHIAGENT_REQUIRE_SERVICES") == "1"
+
+
 def _reachable(host: str, port: int) -> bool:
     try:
         with socket.create_connection((host, port), timeout=1):
             return True
     except OSError:
         return False
+
+
+def _need(name: str, host: str, port: int) -> None:
+    if _reachable(host, port):
+        return
+    message = f"{name} not reachable on :{port} — run `docker compose up -d` in service/"
+    if require_services():
+        pytest.fail(f"ARCHIAGENT_REQUIRE_SERVICES=1 but {message}")
+    pytest.skip(message)
 
 
 @pytest.fixture(scope="session")
@@ -23,8 +43,7 @@ def settings():
 def s3(settings):
     """Skips rather than fails when the stack is down — but never passes
     silently: the skip message says exactly how to start it."""
-    if not _reachable("localhost", 9090):
-        pytest.skip("S3Mock not reachable on :9090 — run `docker compose up -d` in service/")
+    _need("S3Mock", "localhost", 9090)
     from archiagent_service.storage import get_store
 
     store = get_store()
@@ -34,8 +53,7 @@ def s3(settings):
 
 @pytest.fixture(scope="session")
 def pg_engine(settings):
-    if not _reachable("localhost", 5433):
-        pytest.skip("Postgres not reachable on :5433 — run `docker compose up -d` in service/")
+    _need("Postgres", "localhost", 5433)
     from alembic import command
     from alembic.config import Config
     from sqlalchemy import create_engine
