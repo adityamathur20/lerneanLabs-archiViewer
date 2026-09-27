@@ -22,7 +22,18 @@ class ObjectStore:
             endpoint_url=endpoint,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                # Recent botocore attaches CRC32 checksums to every upload by
+                # default ("when_supported"). Multipart uploads then require the
+                # per-part checksum echoed back on CompleteMultipartUpload, which
+                # S3-compatible stores without flexible-checksum support reject.
+                # "when_required" restores interoperable behaviour; genuine AWS
+                # S3 accepts it too, so this costs nothing in production.
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
             region_name="us-east-1",
         )
 
