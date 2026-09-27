@@ -1,13 +1,36 @@
 """Upload validation. Everything here runs BEFORE a job is queued."""
+import subprocess
+from functools import lru_cache
 from pathlib import PurePosixPath
 
 from fastapi import HTTPException
 
-# What this service can actually process today. DWG needs the ODA conversion
-# step, which is Phase 4: accepting it now would queue a job that fails minutes
-# later inside the CLI with an ezdxf parse error.
-ALLOWED_SUFFIXES = {".dxf", ".pdf"}
-NOT_YET_SUPPORTED = {".dwg": "DWG conversion arrives in Phase 4; export DXF for now"}
+from archiagent_service.config import get_settings
+
+# What archiagent can ingest. A DWG is converted to DXF by Tier 1 (the ODA File
+# Converter) before the pipeline sees it.
+ALLOWED_SUFFIXES = {".dxf", ".dwg", ".pdf"}
+
+
+@lru_cache
+def dwg_supported() -> bool:
+    """Whether the worker can actually convert a DWG.
+
+    Asked of Tier 1 rather than guessed, so a worker with no converter refuses
+    the upload immediately instead of queueing a job that fails minutes later
+    with a generic error. Cached: it is a filesystem probe on a fixed path.
+    """
+    settings = get_settings()
+    try:
+        completed = subprocess.run(
+            [str(settings.archiagent_python), "-c",
+             "from archiagent.ingest.dwg import converter_available;"
+             "print('yes' if converter_available() else 'no')"],
+            cwd=settings.archiagent_cwd, capture_output=True, text=True, timeout=30,
+        )
+        return completed.stdout.strip() == "yes"
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def validate_upload(filename: str, size: int, max_bytes: int) -> str:
@@ -24,8 +47,12 @@ def validate_upload(filename: str, size: int, max_bytes: int) -> str:
         raise HTTPException(status_code=400, detail="filename must not contain a path")
 
     suffix = PurePosixPath(filename).suffix.lower()
-    if suffix in NOT_YET_SUPPORTED:
-        raise HTTPException(status_code=400, detail=NOT_YET_SUPPORTED[suffix])
+    if suffix == ".dwg" and not dwg_supported():
+        raise HTTPException(
+            status_code=400,
+            detail="this deployment cannot convert DWG (no ODA File Converter on "
+                   "the worker); export DXF and upload that instead",
+        )
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=400,

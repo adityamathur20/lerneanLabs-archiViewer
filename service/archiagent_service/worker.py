@@ -75,6 +75,14 @@ def run_job(job_id: str) -> None:
             result = run_cli(source, work, options)
             acceptance = read_acceptance(work)
             artifacts = []
+            if suffix == ".dwg":
+                # ODA's output is not byte-deterministic, so the only way to
+                # reproduce or debug a DWG-derived result is to keep the exact
+                # DXF that produced it.
+                converted = work / f"{WORKING_STEM}.dxf"
+                if converted.is_file():
+                    store.put_file(f"{prefix}{converted.name}", converted)
+                    artifacts.append(converted.name)
             for path in collect_artifacts(work):
                 store.put_file(f"{prefix}{path.name}", path)
                 artifacts.append(path.name)
@@ -86,6 +94,9 @@ def run_job(job_id: str) -> None:
             job_id,
             status="failed",
             error=f"{type(error).__name__}: {error}\n{traceback.format_exc()[-2000:]}",
+            # Provenance belongs on the failure path too: a DWG job that dies
+            # on an S3 outage is still a DWG job.
+            converted_from_dwg=suffix == ".dwg",
         )
         raise
 
@@ -102,4 +113,5 @@ def run_job(job_id: str) -> None:
         artifacts=artifacts,
         timings_ms={"author": result.duration_ms},
         archiagent_version=archiagent_version(),
+        converted_from_dwg=suffix == ".dwg",
     )

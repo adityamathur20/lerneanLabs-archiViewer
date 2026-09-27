@@ -33,8 +33,11 @@ class CliResult:
 
 
 def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> list[str]:
-    # Exactly one of --dxfFilePath / --pdfFilePath is accepted.
-    flag = "--pdfFilePath" if source.suffix.lower() == ".pdf" else "--dxfFilePath"
+    # Exactly one input flag is accepted. DWG conversion happens inside the
+    # CLI (Tier 1), so the service only names the flag.
+    flag = {".pdf": "--pdfFilePath", ".dwg": "--dwgFilePath"}.get(
+        source.suffix.lower(), "--dxfFilePath"
+    )
     command = [str(python), "-m", "archiagent", flag, str(source), "--outputDir", str(out_dir)]
     if (units := options.get("units_per_foot")) is not None:
         command += ["--units-per-foot", str(units)]

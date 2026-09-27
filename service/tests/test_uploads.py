@@ -7,10 +7,9 @@ MAX = 200 * 1024 * 1024
 
 
 def test_accepts_the_formats_this_service_can_process_today():
-    """DWG is deliberately absent: it needs the ODA conversion step, which is
-    Phase 4. Accepting it would queue a job that fails minutes later inside the
-    CLI with an ezdxf parse error."""
-    assert ALLOWED_SUFFIXES == {".dxf", ".pdf"}
+    """DWG is admitted again in Phase 4: Tier 1 converts it with the ODA File
+    Converter before the pipeline sees it."""
+    assert ALLOWED_SUFFIXES == {".dxf", ".dwg", ".pdf"}
     assert validate_upload("plan.dxf", 1000, MAX) == ".dxf"
     assert validate_upload("PLAN.DXF", 1000, MAX) == ".dxf"
 

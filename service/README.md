@@ -46,6 +46,28 @@ Artifacts live under `{tenant_id}/{job_id}/`, and authorization is a single
 prefix check in `auth.owned_job` — which returns **404, never 403**, for another
 tenant's job, because a 403 would confirm that the job exists.
 
+## DWG
+
+`.dwg` uploads are converted to DXF by **Tier 1** using the ODA File Converter
+and then follow the DXF path exactly; `converted_from_dwg` records it on the
+job. The service never runs ODA itself — it only passes `--dwgFilePath`.
+
+`.dwg` is **refused with a 400 at upload time** on a worker with no converter,
+rather than queued and failed minutes later. The converted `plan.dxf` is kept as
+a job artifact: ODA's output is not byte-deterministic, so it is the only way to
+reproduce or debug a DWG-derived result, and it is what `--replay-manifest`
+must be replayed against.
+
+The converter must be installed on the worker host
+(`/Applications/ODAFileConverter.app/...`, or set `ARCHIAGENT_ODA_CONVERTER`).
+It **exits 0 even when conversion fails**, writing `<name>.dxf.err` instead, so
+the return code is never trusted; failures surface the converter's own message.
+
+> **Licence.** ODA File Converter is free to download, but its redistribution
+> terms restrict bundling into a hosted service. Local and self-hosted use is
+> fine; clearing SaaS distribution is a business prerequisite, not an
+> engineering task.
+
 ## How work is paced
 
 A tenant may submit as many jobs as it likes: `start` always queues. The
