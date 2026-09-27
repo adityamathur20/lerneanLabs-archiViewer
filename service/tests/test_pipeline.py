@@ -36,6 +36,14 @@ def test_a_pdf_source_uses_the_pdf_flag():
     assert "--dxfFilePath" not in command
 
 
+def test_a_dwg_source_uses_the_dwg_flag():
+    """Phase 4: the CLI converts DWG itself, so the service only says which
+    flag to use — it never shells out to ODA a second time."""
+    command = build_command(Path("/p"), Path("/w/plan.dwg"), Path("/w"), {})
+    assert "--dwgFilePath" in command
+    assert "--dxfFilePath" not in command
+
+
 def test_collect_artifacts_finds_what_the_pipeline_wrote(tmp_path):
     (tmp_path / "source.ifc").write_bytes(b"ISO-10303-21;")
     (tmp_path / "source.interpretation.json").write_text("{}")

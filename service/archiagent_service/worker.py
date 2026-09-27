@@ -102,4 +102,5 @@ def run_job(job_id: str) -> None:
         artifacts=artifacts,
         timings_ms={"author": result.duration_ms},
         archiagent_version=archiagent_version(),
+        converted_from_dwg=suffix == ".dwg",
     )

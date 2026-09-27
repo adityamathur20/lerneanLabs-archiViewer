@@ -1,6 +1,5 @@
 """Tests for the final-review findings. Each reproduces a defect first."""
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from archiagent_service import auth
@@ -175,17 +174,6 @@ def test_deleting_a_running_job_is_refused(client, pg_session, alice):
 
     response = client.delete(f"/v1/jobs/{job.id}", headers=_auth(key))
     assert response.status_code == 409
-
-
-# --- Important 6: .dwg was accepted with nothing to convert it --------------
-
-def test_dwg_is_refused_until_phase_4():
-    from archiagent_service.uploads import validate_upload
-
-    with pytest.raises(HTTPException) as caught:
-        validate_upload("plan.dwg", 1000, 10_000)
-    assert caught.value.status_code == 400
-    assert "dwg" in caught.value.detail.lower()
 
 
 # --- Important 8: artifact names must match the spec's contract -------------

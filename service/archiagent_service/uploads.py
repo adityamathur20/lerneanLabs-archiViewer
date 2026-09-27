@@ -3,11 +3,9 @@ from pathlib import PurePosixPath
 
 from fastapi import HTTPException
 
-# What this service can actually process today. DWG needs the ODA conversion
-# step, which is Phase 4: accepting it now would queue a job that fails minutes
-# later inside the CLI with an ezdxf parse error.
-ALLOWED_SUFFIXES = {".dxf", ".pdf"}
-NOT_YET_SUPPORTED = {".dwg": "DWG conversion arrives in Phase 4; export DXF for now"}
+# What archiagent can ingest. A DWG is converted to DXF by Tier 1 (the ODA File
+# Converter) before the pipeline sees it.
+ALLOWED_SUFFIXES = {".dxf", ".dwg", ".pdf"}
 
 
 def validate_upload(filename: str, size: int, max_bytes: int) -> str:
@@ -24,8 +22,6 @@ def validate_upload(filename: str, size: int, max_bytes: int) -> str:
         raise HTTPException(status_code=400, detail="filename must not contain a path")
 
     suffix = PurePosixPath(filename).suffix.lower()
-    if suffix in NOT_YET_SUPPORTED:
-        raise HTTPException(status_code=400, detail=NOT_YET_SUPPORTED[suffix])
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=400,
