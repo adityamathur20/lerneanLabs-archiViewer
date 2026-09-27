@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from archiagent_service.auth import current_tenant, db_session, owned_job
 from archiagent_service.config import get_settings
 from archiagent_service.models import Job, Tenant, ulid
-from archiagent_service.queue import admit, get_queue
+from archiagent_service.queue import get_queue
 from archiagent_service.storage import get_store
 from archiagent_service.uploads import validate_upload
 
@@ -44,6 +44,7 @@ def job_json(job: Job) -> dict:
         "options": job.options,
         "exit_code": job.exit_code,
         "acceptance": job.acceptance,
+        "archiagent_version": job.archiagent_version,
         "artifacts": job.artifacts,
         "timings_ms": job.timings_ms,
         "error": job.error,
@@ -83,8 +84,13 @@ def create_app() -> FastAPI:
         session.flush()
 
         key = f"{job.prefix}source{suffix}"
-        # Presigned PUT: the bytes go straight to object storage (spec §7.3).
-        return {"job_id": job.id, "key": key, "upload_url": get_store().presign_put(key)}
+        # Presigned PUT: the bytes go straight to object storage (spec §7.3),
+        # bound to the declared size so the cap is not merely advisory.
+        return {
+            "job_id": job.id,
+            "key": key,
+            "upload_url": get_store().presign_put(key, size=body.size),
+        }
 
     @app.post("/v1/jobs/{job_id}/start")
     def start_job(
@@ -97,17 +103,26 @@ def create_app() -> FastAPI:
         job = owned_job(session, tenant, job_id)
         if job.status != "pending":
             raise HTTPException(status_code=409, detail=f"job is already {job.status}")
-        if not get_store().exists(_source_key(job)):
+
+        stored = get_store().size_of(_source_key(job))
+        if stored is None:
             raise HTTPException(status_code=409, detail="source was never uploaded")
-        if not admit(session, tenant.id, settings.tenant_max_concurrent):
+        if job.source_bytes is not None and stored != job.source_bytes:
+            # The declared size gated the upload; if the bytes disagree, the
+            # declaration was a fiction and the cap never applied.
             raise HTTPException(
-                status_code=429,
-                detail=f"at most {settings.tenant_max_concurrent} concurrent jobs per tenant",
+                status_code=409,
+                detail=f"uploaded size {stored} does not match the declared size {job.source_bytes}",
             )
+        if stored > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail=f"upload exceeds {settings.max_upload_bytes} bytes")
 
         job.options = body.model_dump(exclude_none=True)
         job.status = "queued"
-        session.flush()
+        # Commit BEFORE enqueueing: a worker that dequeues while the row is
+        # still uncommitted finds no job and strands it. The cap is enforced
+        # worker-side, so submission is never refused (Review Focus #4).
+        session.commit()
         get_queue().enqueue("archiagent_service.worker.run_job", job.id)
         return {"status": job.status}
 
@@ -122,17 +137,21 @@ def create_app() -> FastAPI:
     @app.get("/v1/jobs")
     def list_jobs(
         limit: int = 50,
+        cursor: str | None = None,
         tenant: Tenant = Depends(current_tenant),
         session: Session = Depends(db_session),
     ) -> dict:
-        rows = (
-            session.query(Job)
-            .filter_by(tenant_id=tenant.id)
-            .order_by(Job.id.desc())
-            .limit(min(limit, 200))
-            .all()
-        )
-        return {"jobs": [job_json(job) for job in rows]}
+        # Ids are ULIDs, so id ordering IS creation ordering and the cursor is
+        # just the last id seen — no offset scan, stable under inserts.
+        limit = max(1, min(limit, 200))
+        query = session.query(Job).filter_by(tenant_id=tenant.id)
+        if cursor:
+            query = query.filter(Job.id < cursor)
+        rows = query.order_by(Job.id.desc()).limit(limit).all()
+        return {
+            "jobs": [job_json(job) for job in rows],
+            "next_cursor": rows[-1].id if len(rows) == limit else None,
+        }
 
     @app.get("/v1/jobs/{job_id}/artifacts/{name}")
     def get_artifact(
@@ -154,6 +173,10 @@ def create_app() -> FastAPI:
         session: Session = Depends(db_session),
     ) -> dict:
         job = owned_job(session, tenant, job_id)
+        if job.status in ("queued", "running"):
+            # Deleting under a live worker orphans whatever it uploads next:
+            # billed forever and invisible to delete_prefix.
+            raise HTTPException(status_code=409, detail=f"job is {job.status}; wait for it to finish")
         removed = get_store().delete_prefix(job.prefix)
         session.delete(job)
         return {"deleted": True, "objects_removed": removed}

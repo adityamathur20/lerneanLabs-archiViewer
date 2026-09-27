@@ -10,7 +10,7 @@ or ifcopenshell's memory growth cannot take the API process with it (spec §5.2)
 ```bash
 docker compose up -d          # postgres:5433, redis:6380, s3mock:9090
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -c "from archiagent_service.db import create_all; create_all()"
+.venv/bin/alembic upgrade head            # schema; migrations, not create_all
 
 .venv/bin/uvicorn archiagent_service.api:app --reload --port 8000
 .venv/bin/rq worker archiagent --url redis://localhost:6380/0   # another shell
@@ -46,6 +46,19 @@ Artifacts live under `{tenant_id}/{job_id}/`, and authorization is a single
 prefix check in `auth.owned_job` — which returns **404, never 403**, for another
 tenant's job, because a 403 would confirm that the job exists.
 
+## How work is paced
+
+A tenant may submit as many jobs as it likes: `start` always queues. The
+concurrency cap is enforced **worker-side**, where `claim_slot` takes the tenant
+row lock, counts *running* jobs only, and re-queues with a delay when the tenant
+is at its cap. Rejecting submissions with 429 instead would push the queue back
+onto the client, which is the work this service exists to do.
+
+A worker that dies rather than exiting nonzero still leaves a terminal job: the
+run is wrapped so an S3 outage, an OOM or a container restart records `failed`
+with the traceback and frees the cap slot, then re-raises so RQ marks its own
+job failed too.
+
 ## Choices worth knowing
 
 - **S3 is Adobe's S3Mock locally**, not MinIO: MinIO's images are no longer
@@ -55,6 +68,15 @@ tenant's job, because a 403 would confirm that the job exists.
   (`when_supported`) attaches CRC32 to multipart uploads and then demands the
   per-part checksum back on completion, which S3-compatible stores without
   flexible-checksum support reject. Genuine AWS S3 accepts `when_required` too.
+- **Uploads are bound to their declared size.** The presigned PUT carries
+  `ContentLength`, and `start` compares the stored object against the declared
+  bytes. Without both, the 200 MB cap is decorative: a client declares 1 KB and
+  PUTs 5 GB.
+- **Artifacts are named `plan.*`.** The CLI derives its output stem from the
+  input filename, so the worker writes its working copy as `plan.dxf` and the
+  artifacts come out as the spec §3 contract names them.
+- **`.dwg` is refused with a 400 until Phase 4.** Accepting it today would queue
+  a job that fails minutes later inside the CLI.
 - **The worker runs the CLI with the venv at
   `lerneanLabs-archiAgent/.venv/bin/python`.** Override with
   `ARCHIAGENT_SERVICE_ARCHIAGENT_PYTHON`.

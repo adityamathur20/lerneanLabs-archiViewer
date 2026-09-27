@@ -7,10 +7,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from archiagent_service.config import get_settings
-from archiagent_service.models import Job
+from archiagent_service.models import Job, Tenant
 
-#: Statuses that occupy a slot.
-LIVE = ("queued", "running")
+#: Statuses that occupy a slot. Only work that is actually executing counts:
+#: if queued jobs counted, the worker-side check would deadlock, since every
+#: queued job would block every other queued job.
+LIVE = ("running",)
 
 
 @lru_cache
@@ -27,5 +29,21 @@ def running_count(session: Session, tenant_id: str) -> int:
 
 
 def admit(session: Session, tenant_id: str, max_concurrent: int) -> bool:
-    """Whether this tenant may start another job right now."""
+    """Whether this tenant may start another job right now.
+
+    Callers that act on the answer must hold the tenant row lock — see
+    `claim_slot`, which does both atomically.
+    """
+    return running_count(session, tenant_id) < max_concurrent
+
+
+def claim_slot(session: Session, tenant_id: str, max_concurrent: int) -> bool:
+    """Atomically check the cap and claim a slot.
+
+    Check-then-act without a lock is advisory only: two workers both read
+    count == 1 and both proceed. Locking the tenant row serialises the pair.
+    """
+    session.execute(
+        select(Tenant.id).where(Tenant.id == tenant_id).with_for_update()
+    ).one_or_none()
     return running_count(session, tenant_id) < max_concurrent

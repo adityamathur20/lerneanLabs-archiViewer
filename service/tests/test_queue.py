@@ -16,14 +16,17 @@ def _job(session, tenant, status):
     return job
 
 
-def test_running_count_counts_only_live_jobs(pg_session):
+def test_running_count_counts_only_executing_work(pg_session):
+    """Queued jobs deliberately do NOT count: the cap is enforced worker-side,
+    so counting queued work would deadlock — every queued job would block every
+    other queued job."""
     tenant = _tenant(pg_session, "acme")
     _job(pg_session, tenant, "running")
     _job(pg_session, tenant, "queued")
     _job(pg_session, tenant, "succeeded")
     _job(pg_session, tenant, "failed")
 
-    assert running_count(pg_session, tenant.id) == 2
+    assert running_count(pg_session, tenant.id) == 1
 
 
 # Review Focus #4

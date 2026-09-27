@@ -4,6 +4,7 @@ The service NEVER imports archiagent. The CLI's documented exit codes are the
 API's error taxonomy: 0 success, 1 pipeline/export/acceptance failure,
 2 LLM unavailable, 3 bad usage.
 """
+import json
 import subprocess
 import time
 from dataclasses import dataclass
@@ -63,3 +64,39 @@ def collect_artifacts(out_dir: Path) -> list[Path]:
     for pattern in ARTIFACT_PATTERNS:
         found.extend(sorted(out_dir.glob(pattern)))
     return found
+
+
+def read_acceptance(out_dir: Path) -> str | None:
+    """`draft` or `checks-passed`, from the report the pipeline wrote.
+
+    The report carries one status per plan region (`regions[].status`), so a
+    job with any draft region is a draft job — the pessimistic reduction is the
+    honest one, since a user must not read "checks-passed" while part of the
+    model failed validation. Spec §3.2 declares this field; without it a draft
+    IFC is reported as a plain success with no signal that anything failed.
+    """
+    for report in sorted(out_dir.glob("*.report.json")):
+        try:
+            regions = json.loads(report.read_text()).get("regions", [])
+        except (OSError, json.JSONDecodeError):
+            continue
+        statuses = {r.get("status") for r in regions if isinstance(r, dict)}
+        if "draft" in statuses:
+            return "draft"
+        if statuses:
+            return "checks-passed"
+    return None
+
+
+def archiagent_version() -> str | None:
+    """Recorded per job so an artifact can be traced to the code that made it."""
+    settings = get_settings()
+    try:
+        completed = subprocess.run(
+            [str(settings.archiagent_python), "-c",
+             "import importlib.metadata as m; print(m.version('archiagent'))"],
+            cwd=settings.archiagent_cwd, capture_output=True, text=True, timeout=30,
+        )
+        return completed.stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None

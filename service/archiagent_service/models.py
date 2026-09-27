@@ -52,6 +52,7 @@ class Job(Base):
     options: Mapped[dict] = mapped_column(JSON, default=dict)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     acceptance: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    archiagent_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     timings_ms: Mapped[dict] = mapped_column(JSON, default=dict)
     artifacts: Mapped[list] = mapped_column(JSON, default=list)

@@ -6,10 +6,13 @@ from archiagent_service.uploads import ALLOWED_SUFFIXES, validate_upload
 MAX = 200 * 1024 * 1024
 
 
-def test_accepts_the_formats_archiagent_ingests():
-    assert ALLOWED_SUFFIXES == {".dxf", ".dwg", ".pdf"}
+def test_accepts_the_formats_this_service_can_process_today():
+    """DWG is deliberately absent: it needs the ODA conversion step, which is
+    Phase 4. Accepting it would queue a job that fails minutes later inside the
+    CLI with an ezdxf parse error."""
+    assert ALLOWED_SUFFIXES == {".dxf", ".pdf"}
     assert validate_upload("plan.dxf", 1000, MAX) == ".dxf"
-    assert validate_upload("PLAN.DWG", 1000, MAX) == ".dwg"
+    assert validate_upload("PLAN.DXF", 1000, MAX) == ".dxf"
 
 
 # Review Focus #3

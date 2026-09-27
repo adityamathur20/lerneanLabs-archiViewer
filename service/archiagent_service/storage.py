@@ -68,10 +68,23 @@ class ObjectStore:
             "get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=expires
         )
 
-    def presign_put(self, key: str, expires: int = 3600) -> str:
-        return self._client.generate_presigned_url(
-            "put_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=expires
-        )
+    def presign_put(self, key: str, size: int | None = None, expires: int = 3600) -> str:
+        """Signs an upload URL, bound to `size` when given.
+
+        Without ContentLength in the signed params the declared size is
+        decorative: a client can declare 1 KB, receive the URL and PUT 5 GB.
+        """
+        params: dict = {"Bucket": self.bucket, "Key": key}
+        if size is not None:
+            params["ContentLength"] = size
+        return self._client.generate_presigned_url("put_object", Params=params, ExpiresIn=expires)
+
+    def size_of(self, key: str) -> int | None:
+        """Bytes actually stored, or None if the key is absent."""
+        try:
+            return self._client.head_object(Bucket=self.bucket, Key=key)["ContentLength"]
+        except ClientError:
+            return None
 
     def list_prefix(self, prefix: str) -> list[str]:
         paginator = self._client.get_paginator("list_objects_v2")

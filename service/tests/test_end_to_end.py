@@ -48,6 +48,12 @@ def test_a_dxf_becomes_an_ifc_in_object_storage(pg_engine, s3):
         if finished.status == "succeeded":
             ifcs = [n for n in finished.artifacts if n.endswith(".ifc")]
             assert ifcs, finished.artifacts
+            # Spec §3 names the artifacts plan.ifc / plan.report.json. Tier 2's
+            # cache key is keyed on plan.ifc and must not have to guess the stem.
+            assert ifcs[0] == "plan.ifc", finished.artifacts
+            assert finished.acceptance in {"draft", "checks-passed"}, finished.acceptance
+            print(f"\nartifacts: {finished.artifacts}")
+            print(f"acceptance: {finished.acceptance}  version: {finished.archiagent_version}")
             assert get_store().get(f"{prefix}{ifcs[0]}").startswith(b"ISO-10303-21;")
         else:
             # A failure must still be diagnosable — Review Focus #2.

@@ -1,4 +1,5 @@
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -35,13 +36,18 @@ def s3(settings):
 def pg_engine(settings):
     if not _reachable("localhost", 5433):
         pytest.skip("Postgres not reachable on :5433 — run `docker compose up -d` in service/")
+    from alembic import command
+    from alembic.config import Config
     from sqlalchemy import create_engine
 
-    from archiagent_service.models import Base
+    # Run the real migrations, not create_all: otherwise the migration path is
+    # never exercised and the first deployed schema change has no story.
+    root = Path(__file__).resolve().parents[1]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    command.upgrade(config, "head")
 
-    engine = create_engine(settings.database_url)
-    Base.metadata.create_all(engine)
-    return engine
+    return create_engine(settings.database_url)
 
 
 @pytest.fixture
