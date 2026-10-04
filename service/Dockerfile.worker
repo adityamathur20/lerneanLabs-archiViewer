@@ -10,8 +10,13 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
 # pymupdf and shapely ship wheels; opencv-python-headless needs libGL's
 # runtime even headless, and ifcopenshell wants libstdc++.
+#
+# fonts-dejavu-core is NOT optional: python:3.12-slim ships no fonts at all, and
+# a real run floods stderr with "no default font found: no fonts available, not
+# even fallback fonts" from the text rendering in the vision/overlay path. Found
+# by running an actual DXF through this image, not by reading the Dockerfile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libgl1 libglib2.0-0 \
+      libgl1 libglib2.0-0 fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 
 # --- Tier 1, in its own venv -------------------------------------------------
@@ -27,11 +32,20 @@ RUN python -m venv /opt/agent \
 WORKDIR /app
 COPY archiagent-viewer/service/pyproject.toml ./
 COPY archiagent-viewer/service/archiagent_service ./archiagent_service
+# A writable home is load-bearing here, unlike in the api image: ezdxf caches
+# under $HOME and matplotlib needs MPLCONFIGDIR, and a --no-create-home system
+# user gets HOME=/nonexistent. Found by running a DXF through this image, which
+# reported "Cannot create cache home directory: '/nonexistent/.cache/ezdxf'".
 RUN pip install --no-cache-dir . \
- && adduser --system --no-create-home --uid 10001 appuser
+ && adduser --system --no-create-home --uid 10001 appuser \
+ && mkdir -p /var/cache/archiagent \
+ && chown appuser /var/cache/archiagent
 USER appuser
 
 ENV ARCHIAGENT_SERVICE_ARCHIAGENT_PYTHON=/opt/agent/bin/python \
-    ARCHIAGENT_SERVICE_ARCHIAGENT_CWD=/opt/archiagent
+    ARCHIAGENT_SERVICE_ARCHIAGENT_CWD=/opt/archiagent \
+    HOME=/var/cache/archiagent \
+    XDG_CACHE_HOME=/var/cache/archiagent \
+    MPLCONFIGDIR=/var/cache/archiagent/matplotlib
 
 CMD ["rq", "worker", "archiagent"]
