@@ -8,7 +8,8 @@
     "test": "node --test tests/",
     "smoke": "node scripts/smoke.mjs",
     "shot": "node scripts/shot.mjs",
-    "build:frag": "node scripts/build-frag.mjs"
+    "build:frag": "node scripts/build-frag.mjs",
+    "csp": "node scripts/csp-check.mjs"
   },
   "description": "Renders archiAgent's authored IFC in the browser with @thatopen/fragments.",
   "dependencies": {

@@ -1,0 +1,95 @@
+{
+	email {$ACME_EMAIL}
+	# Certificate state lives in a named volume (compose). Losing it re-requests
+	# certificates and Let's Encrypt's rate limit then locks TLS out for a week,
+	# so first-run experimentation should point at staging:
+	#   ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+	# Unset means production. Staging certs are untrusted by browsers BY DESIGN —
+	# that is the signal you are still on staging, not a failure.
+	acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+	# Do not advertise the server or its version.
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+# Applied to every site below. Kept in one snippet so a new hostname cannot
+# quietly ship without them.
+(hardened) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Cross-Origin-Opener-Policy "same-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		-Server
+	}
+}
+
+# --- the viewer --------------------------------------------------------------
+planto3d.in {
+	import hardened
+
+	# The page holds an API key in localStorage, so XSS here is credential
+	# theft. 'wasm-unsafe-eval' is required by web-ifc; 'unsafe-inline' for
+	# style only, because index.html carries a <style> block and style
+	# attributes. No 'unsafe-eval', no'unsafe-inline' for script, and
+	# connect-src is limited to our own API and object store.
+	header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.planto3d.in https://s3.planto3d.in; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+
+	root * /srv/viewer
+	encode zstd gzip
+
+	# Dotfiles are never content. Without this a stray .env or .git copied into
+	# the web root would be served.
+	@hidden path_regexp /\.
+	respond @hidden 404
+
+	try_files {path} /index.html
+	file_server
+}
+
+www.planto3d.in {
+	import hardened
+	redir https://planto3d.in{uri} permanent
+}
+
+# Held defensively, not a second deployment (spec §3.1). {uri} is this
+# request's own path and query, so this cannot redirect off-domain.
+planto3d.si, www.planto3d.si {
+	import hardened
+	redir https://planto3d.in{uri} permanent
+}
+
+# --- the API ----------------------------------------------------------------
+api.planto3d.in {
+	import hardened
+	# An API response is never a document; if one is ever reflected to a
+	# browser it must not execute.
+	header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+	reverse_proxy api:8000
+}
+
+# --- object storage ---------------------------------------------------------
+# Public because presigned URLs sign the host, and the browser must reach the
+# same host the signature was made for (spec §4.3). Garage itself publishes no
+# port; this is the only way in, and its access keys remain the authorization
+# boundary.
+s3.planto3d.in {
+	import hardened
+
+	# fetch() follows the API's 302 here, and the FINAL response is the one
+	# whose CORS headers are checked (spec §4.4). A presigned GET sends no
+	# custom headers, so there is no preflight to answer — only this.
+	header Access-Control-Allow-Origin "{$VIEWER_ORIGIN}"
+	header Access-Control-Expose-Headers "ETag, Content-Length"
+	header Vary "Origin"
+	# Artifacts are data. Never let one execute as a document.
+	header Content-Security-Policy "default-src 'none'"
+	header X-Content-Type-Options "nosniff"
+
+	# Only the S3 data path. Garage's admin API (:3903) is NOT proxied, and
+	# bucket-level operations are not reachable through a single-bucket path.
+	reverse_proxy garage:3900
+}
