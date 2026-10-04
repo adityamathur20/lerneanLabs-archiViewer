@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 200 * 1024 * 1024
     tenant_max_concurrent: int = 2
 
+    # The viewer is a different origin in production (spec §4.4). The default
+    # is the dev server, which is where it was same-origin until now.
+    cors_origins: list[str] = ["http://localhost:5173"]
+
 
 @lru_cache
 def get_settings() -> Settings:

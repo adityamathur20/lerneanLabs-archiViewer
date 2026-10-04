@@ -5,6 +5,7 @@ bytes — a 400 MB IFC goes straight from object storage to the client.
 """
 from pathlib import PurePosixPath
 
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -59,6 +60,18 @@ def _source_key(job: Job) -> str:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="archiAgent", version="0.1.0")
+
+    # Spec §4.4: planto3d.in -> api.planto3d.in is cross-origin, and the bearer
+    # token makes every request non-simple, so the preflight must be answered.
+    # allow_credentials stays False: the credential is a bearer header, not a
+    # cookie, and True would forbid the wildcard we never use anyway.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["authorization", "content-type"],
+    )
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
