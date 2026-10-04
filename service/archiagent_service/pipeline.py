@@ -48,9 +48,11 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
     return command
 
 
-def run_cli(source: Path, out_dir: Path, options: dict, timeout_s: int = 3000) -> CliResult:
+def run_cli(source: Path, out_dir: Path, options: dict, timeout_s: int | None = None) -> CliResult:
     settings = get_settings()
     command = build_command(settings.archiagent_python, source, out_dir, options)
+    if timeout_s is None:
+        timeout_s = settings.cli_timeout_s
     started = time.monotonic()
     try:
         completed = subprocess.run(

@@ -85,6 +85,8 @@ services:
       ARCHIAGENT_SERVICE_S3_ACCESS_KEY: ${ARCHIAGENT_SERVICE_S3_ACCESS_KEY}
       ARCHIAGENT_SERVICE_S3_SECRET_KEY: ${ARCHIAGENT_SERVICE_S3_SECRET_KEY}
       ARCHIAGENT_SERVICE_CORS_ORIGINS: ${ARCHIAGENT_SERVICE_CORS_ORIGINS}
+      # The api enqueues, so it is the side that sets the job's timeout.
+      ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S: ${ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S:-7200}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -111,7 +113,24 @@ services:
       ARCHIAGENT_SERVICE_S3_BUCKET: ${ARCHIAGENT_SERVICE_S3_BUCKET}
       ARCHIAGENT_SERVICE_S3_ACCESS_KEY: ${ARCHIAGENT_SERVICE_S3_ACCESS_KEY}
       ARCHIAGENT_SERVICE_S3_SECRET_KEY: ${ARCHIAGENT_SERVICE_S3_SECRET_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # The LLM. archiAgent reaches NVIDIA's OpenAI-compatible endpoint with
+      # provider 'openai' plus a base URL, so OPENAI_API_KEY holds the
+      # nvapi-… key. Measured working with strict json_schema, which the
+      # classifier requires and many compatible endpoints do not support.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # LITERAL, not ${...}: compose gives the HOST SHELL precedence over
+      # .env, so an operator with ARCHIAGENT_LLM_MODEL exported in their
+      # profile would silently deploy a different model than .env documents.
+      # That happened during setup — a profile exporting moonshotai/kimi-k3
+      # overrode .env's llama and nothing warned. These three are deliberate
+      # deployment decisions, so they live in git where a change is reviewable;
+      # only the secret comes from the environment.
+      ARCHIAGENT_LLM_PROVIDER: "openai"
+      ARCHIAGENT_LLM_BASE_URL: "https://integrate.api.nvidia.com/v1"
+      ARCHIAGENT_LLM_MODEL: "meta/llama-3.2-90b-vision-instruct"
+      ARCHIAGENT_SERVICE_CLI_TIMEOUT_S: ${ARCHIAGENT_SERVICE_CLI_TIMEOUT_S:-5400}
+      ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S: ${ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S:-7200}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

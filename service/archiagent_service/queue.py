@@ -24,7 +24,8 @@ def get_redis() -> Redis:
 def get_queue() -> Queue:
     settings = get_settings()
     # Jobs are minutes long: vision escalation and LLM classification dominate.
-    return Queue("archiagent", connection=Redis.from_url(settings.redis_url), default_timeout=3600)
+    return Queue("archiagent", connection=Redis.from_url(settings.redis_url),
+                 default_timeout=settings.queue_timeout_s)
 
 
 def running_count(session: Session, tenant_id: str) -> int:

@@ -69,6 +69,17 @@
       <h1>archiAgent → Fragments</h1>
       <div class="sub">The authored IFC, rendered as written</div>
 
+      <h2>Convert</h2>
+      <div id="upload">
+        <input id="file" type="file" accept=".dxf,.pdf" />
+        <label class="row" style="margin-top:6px">
+          <span style="flex:1">Units per foot</span>
+          <input id="units" type="number" step="any" placeholder="auto" style="width:72px" />
+        </label>
+        <button id="convert" style="margin-top:6px">Convert to IFC</button>
+        <div class="sub" id="progress" style="margin-top:6px"></div>
+      </div>
+
       <h2>Model</h2>
       <select id="manifests"><option value="">loading…</option></select>
       <button id="reload">Reload</button>

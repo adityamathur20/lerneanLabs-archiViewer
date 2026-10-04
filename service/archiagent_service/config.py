@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     archiagent_cwd: Path = REPO_ROOT / "lerneanLabs-archiAgent"
     viewer_dir: Path = REPO_ROOT / "archiagent-viewer"
 
+    # How long one conversion may take before it is killed. Measured
+    # 2026-10-04: an 8 MB / 79-layer DXF took 31m42s on a laptop, and two
+    # shared vCPUs are slower, so the old hardcoded 3000s (50 min) would have
+    # killed working drawings rather than catching hung ones. The queue
+    # timeout below must stay larger, or RQ kills the job first and the
+    # traceback explaining why is never recorded.
+    cli_timeout_s: int = 5400
+    queue_timeout_s: int = 7200
+
     max_upload_bytes: int = 200 * 1024 * 1024
     tenant_max_concurrent: int = 2
 

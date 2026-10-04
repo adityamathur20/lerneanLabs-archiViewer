@@ -218,6 +218,71 @@ async function loadList() {
   }
 }
 
+/**
+ * Uploads the chosen drawing and polls until it is done, then reloads the
+ * list so the new model can be selected.
+ *
+ * Polling rather than streaming: a conversion takes minutes (one 79-layer
+ * drawing measured at 31), so there is nothing to stream and a dropped
+ * connection must not lose the job.
+ */
+async function convert() {
+  const input = el("file");
+  const file = input.files?.[0];
+  const progress = el("progress");
+  if (!file) {
+    progress.textContent = "choose a .dxf or .pdf first";
+    return;
+  }
+  if (source.kind !== "api") {
+    progress.textContent = "uploading needs the deployed API (VITE_API_BASE is unset)";
+    return;
+  }
+
+  const button = el("convert");
+  button.disabled = true;
+  input.disabled = true;
+  try {
+    const units = el("units").value.trim();
+    progress.textContent = `uploading ${file.name}…`;
+    const jobId = await source.createJob(file, file.name, {
+      units_per_foot: units === "" ? null : Number(units),
+    });
+
+    const started = Date.now();
+    for (;;) {
+      const job = await source.jobStatus(jobId);
+      const mins = Math.floor((Date.now() - started) / 60000);
+      if (job.status === "succeeded") {
+        progress.textContent = `done in ${mins}m — ${job.acceptance ?? "converted"}`;
+        await loadList();
+        return;
+      }
+      if (job.status === "failed") {
+        // The pipeline's own message, not a generic failure: a refusal like
+        // "wall 18 partially overlaps accepted wall profiles" is actionable,
+        // and "conversion failed" is not.
+        progress.textContent = `failed: ${String(job.error ?? "").split("\n")[0].slice(0, 200)}`;
+        return;
+      }
+      progress.textContent = `${job.status}… ${mins}m elapsed (a large drawing can take 30+)`;
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  } catch (error) {
+    if (error instanceof SourceError && error.status === 401) {
+      el("auth").style.display = "";
+      progress.textContent = "API key missing or rejected — enter one below.";
+    } else {
+      progress.textContent = `failed: ${error.message}`;
+    }
+  } finally {
+    button.disabled = false;
+    input.disabled = false;
+  }
+}
+
+el("convert")?.addEventListener("click", convert);
+
 el("saveKey")?.addEventListener("click", () => {
   try {
     localStorage.setItem(KEY_STORAGE, el("apiKey").value.trim());

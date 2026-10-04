@@ -150,3 +150,13 @@ test("the object store never allows credentials alongside the wildcard", () => {
 test("dotfiles are not served from the web root", () => {
   assert.match(sites()["planto3d.in"], /respond @hidden 404/);
 });
+
+test("the object store answers the preflight the browser's PUT requires", () => {
+  // A PUT is never a simple request, so the browser sends OPTIONS first.
+  // Garage does not answer it; without this the upload form fails with an
+  // unexplained CORS error while curl uploads fine.
+  const s3 = sites()["s3.planto3d.in"];
+  assert.match(s3, /method OPTIONS/);
+  assert.match(s3, /Access-Control-Allow-Methods "[^"]*PUT/);
+  assert.match(s3, /respond 204/);
+});

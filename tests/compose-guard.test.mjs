@@ -99,6 +99,37 @@ test("secrets are scoped per service, not handed to everything", () => {
   }
   const api = serviceBlocks().find((b) => b.trim().startsWith("api:"));
   const worker = serviceBlocks().find((b) => b.trim().startsWith("worker:"));
-  assert.doesNotMatch(api, /ANTHROPIC_API_KEY/, "the api never calls an LLM (spec §6)");
-  assert.match(worker, /ANTHROPIC_API_KEY/, "the worker is the tier that calls the LLM");
+  for (const key of [/ANTHROPIC_API_KEY/, /OPENAI_API_KEY/]) {
+    assert.doesNotMatch(api, key, "the api never calls an LLM (spec §6)");
+  }
+  assert.match(worker, /OPENAI_API_KEY/, "the worker is the tier that calls the LLM");
+});
+
+test("the worker carries a complete LLM configuration", () => {
+  // provider 'openai' against a base URL is how archiAgent reaches NVIDIA.
+  // Missing any one of these and the first classification fails: no provider
+  // means it defaults to anthropic, no base URL means it calls OpenAI with an
+  // nvapi- key, and no model means build_client refuses the anthropic default.
+  const worker = serviceBlocks().find((b) => b.trim().startsWith("worker:"));
+  for (const v of ["ARCHIAGENT_LLM_PROVIDER", "ARCHIAGENT_LLM_BASE_URL", "ARCHIAGENT_LLM_MODEL"]) {
+    assert.match(worker, new RegExp(v), `worker must set ${v}`);
+    // Literal, not interpolated: compose gives the host shell precedence over
+    // .env, so ${...} here means a stray profile export silently changes the
+    // deployed model. Observed during setup.
+    assert.doesNotMatch(
+      worker,
+      new RegExp(`${v}: \\$\\{`),
+      `${v} must be a literal value, or the host shell can override it`,
+    );
+  }
+  assert.match(worker, /ARCHIAGENT_LLM_MODEL: "meta\/llama-3\.2-90b-vision-instruct"/);
+});
+
+test("the queue timeout stays larger than the conversion timeout", () => {
+  // Measured: a 79-layer DXF took 31m42s. If RQ kills the job first, the
+  // CLI's own timeout never applies and the traceback is never recorded.
+  const cli = Number(compose.match(/CLI_TIMEOUT_S:-(\d+)/)[1]);
+  const queue = Number(compose.match(/QUEUE_TIMEOUT_S:-(\d+)/)[1]);
+  assert.ok(cli >= 3600, `cli timeout ${cli}s must exceed the measured 31m42s`);
+  assert.ok(queue > cli, `queue timeout ${queue}s must exceed cli ${cli}s`);
 });

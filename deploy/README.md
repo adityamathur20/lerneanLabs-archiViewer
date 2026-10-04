@@ -315,10 +315,25 @@ Rollback: `IMAGE_TAG=<previous-sha> docker compose -f docker-compose.prod.yml up
 - **DXF and PDF only.** `.dwg` returns 400: the ODA converter is a macOS
   bundle, and its terms restrict hosted use.
 - **Multi-page PDFs convert page 0.** `build_command` plumbs no `page` option.
-- **No signup and no upload UI.** Jobs are created with `curl` and a
-  hand-issued key, which the browser keeps in `localStorage`. That is why
-  there is no public upload form yet — a browser-held tenant key grants the
-  whole tenant. Phase 7.
+- **No signup.** There is no self-serve registration: you issue keys by hand
+  with the script in section 8. The viewer has an upload form, which uses the
+  same `localStorage` key it already needs to list jobs — so it adds no
+  credential exposure that listing did not already have. A browser-held key
+  still grants that whole tenant, which is why keys are hand-issued and
+  revocable (delete the `api_keys` row) rather than self-served. Phase 7.
+- **The LLM is NVIDIA-hosted `meta/llama-3.2-90b-vision-instruct`**, reached
+  with `provider=openai` plus a base URL. Provider, base URL and model are
+  **pinned in `docker-compose.prod.yml`, not `.env`** — compose lets the host
+  shell override `.env`, so a stray `ARCHIAGENT_LLM_MODEL` in a profile would
+  silently change the deployed model. Only `OPENAI_API_KEY` (the `nvapi-…`
+  key) comes from the environment. To change model, edit compose.
+- **A conversion can take 30+ minutes.** Measured: an 8 MB / 79-layer DXF took
+  31m42s. `ARCHIAGENT_SERVICE_CLI_TIMEOUT_S` is 5400 and the queue timeout
+  7200; the queue's must stay the larger of the two or RQ kills the job before
+  the CLI's own timeout can record why. One worker at concurrency 1 means
+  roughly 48 drawings/day.
+- **Artifacts are large.** 215 MB for an 8 MB drawing (overlay 77 MB, report
+  116 MB). A 100 GB volume holds about 440 conversions; decide what to retain.
 - **Rate limits are per API key, 120 req/min, and per IP for anyone without a
   key, 20 req/min** (`ARCHIAGENT_SERVICE_RATE_LIMIT_PER_MINUTE` /
   `_RATE_LIMIT_ANON_PER_MINUTE`). `/healthz` and CORS preflights are exempt.

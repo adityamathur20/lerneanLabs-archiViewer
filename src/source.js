@@ -60,6 +60,61 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
       if (!response.ok) throw new SourceError(await detail(response), response.status);
       return new Uint8Array(await response.arrayBuffer());
     },
+
+    /**
+     * Uploads a drawing and queues it. Three steps, in this order, because
+     * the service will not start a job whose bytes are not in the store yet.
+     *
+     * Returns the job id so the caller can poll it.
+     */
+    async createJob(blob, filename, options = {}) {
+      // The presigned PUT is signed against this exact byte count, so it must
+      // be the real one — a mismatch is refused by the store, and `start`
+      // refuses again by comparing the stored object to the declaration.
+      const size = blob.size;
+
+      const created = await fetchImpl(`${trimmed}/v1/uploads`, {
+        method: "POST",
+        headers: { ...init().headers, "content-type": "application/json" },
+        body: JSON.stringify({ filename, size }),
+      });
+      if (!created.ok) throw new SourceError(await detail(created), created.status);
+      const { job_id: jobId, upload_url: uploadUrl } = await created.json();
+
+      // Deliberately NO authorization header: the credential for this request
+      // is the signature in the URL, and a bearer token would collide with it.
+      const stored = await fetchImpl(uploadUrl, { method: "PUT", body: blob });
+      if (!stored.ok) {
+        throw new SourceError(`uploading to the object store failed (${stored.status})`, stored.status);
+      }
+
+      // Every field of StartRequest is optional, but the body itself is not,
+      // and a null would fail validation — so empty values are omitted.
+      const body = Object.fromEntries(
+        Object.entries(options).filter(([, value]) => value !== null && value !== undefined && value !== ""),
+      );
+      const started = await fetchImpl(`${trimmed}/v1/jobs/${jobId}/start`, {
+        method: "POST",
+        headers: { ...init().headers, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!started.ok) throw new SourceError(await detail(started), started.status);
+      return jobId;
+    },
+
+    /** One status poll, for the caller's own loop. */
+    async jobStatus(id) {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}`, init());
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      const job = await response.json();
+      return {
+        id: job.job_id,
+        status: job.status,
+        acceptance: job.acceptance,
+        error: job.error,
+        artifacts: job.artifacts ?? [],
+      };
+    },
   };
 }
 

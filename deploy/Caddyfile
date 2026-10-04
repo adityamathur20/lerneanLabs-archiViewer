@@ -122,6 +122,21 @@ s3.planto3d.in {
 	# credential: credentials mode is never `include`, no cookie is in play, and
 	# a wildcard grants nothing that holding the URL did not already grant.
 	header Access-Control-Allow-Origin "*"
+
+	# The browser's presigned PUT needs a preflight ANSWERED, not just a
+	# response header: a GET with no custom headers is a simple request, but
+	# PUT never is, so the browser sends OPTIONS first and refuses to upload if
+	# nothing replies. Garage itself does not answer it, so Caddy does —
+	# otherwise the upload form fails with an unexplained CORS error while
+	# `curl` uploads fine.
+	@preflight method OPTIONS
+	handle @preflight {
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Methods "GET, HEAD, PUT"
+		header Access-Control-Allow-Headers "content-type, x-amz-content-sha256, x-amz-date, x-amz-acl"
+		header Access-Control-Max-Age "600"
+		respond 204
+	}
 	header Access-Control-Expose-Headers "ETag, Content-Length"
 	header Vary "Origin"
 	# Artifacts are data. Never let one execute as a document.

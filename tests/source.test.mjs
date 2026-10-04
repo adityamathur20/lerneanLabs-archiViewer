@@ -119,3 +119,98 @@ test("api source reads the field names job_json actually emits", () => {
   assert.equal(job.job_id, "01JOB");
   assert.equal(job.source.filename, "plan.dxf");
 });
+
+
+// --- creating a job from the browser ----------------------------------------
+
+test("creating a job runs upload -> presigned PUT -> start, in that order", async () => {
+  const seen = [];
+  const source = createApiSource({
+    base: "https://api.planto3d.in",
+    token: "k",
+    fetchImpl: async (url, init = {}) => {
+      seen.push(`${init.method ?? "GET"} ${url}`);
+      if (url.endsWith("/v1/uploads")) {
+        return jsonResponse({ job_id: "01JOB", key: "t/01JOB/source.dxf", upload_url: "https://s3.planto3d.in/signed" });
+      }
+      return jsonResponse({ status: "queued" });
+    },
+  });
+
+  const jobId = await source.createJob(new Blob(["dxfbytes"]), "plan.dxf", { units_per_foot: 12 });
+  assert.equal(jobId, "01JOB");
+  assert.deepEqual(seen, [
+    "POST https://api.planto3d.in/v1/uploads",
+    "PUT https://s3.planto3d.in/signed",
+    "POST https://api.planto3d.in/v1/jobs/01JOB/start",
+  ]);
+});
+
+test("the declared size is the real byte length", async () => {
+  // The presigned PUT is signed against the declared ContentLength, so a
+  // mismatch is rejected by the store and the job can never start.
+  let declared;
+  const bytes = new Blob(["0123456789"]);
+  const source = createApiSource({
+    base: "https://api.planto3d.in",
+    token: "k",
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith("/v1/uploads")) {
+        declared = JSON.parse(init.body).size;
+        return jsonResponse({ job_id: "J", upload_url: "https://s3/x" });
+      }
+      return jsonResponse({});
+    },
+  });
+  await source.createJob(bytes, "plan.dxf", {});
+  assert.equal(declared, 10);
+});
+
+test("the bearer token is never sent to the object store", async () => {
+  // Browsers strip Authorization across an origin-changing redirect, but this
+  // PUT is a direct request we construct — nothing would strip it. A bearer
+  // token reaching Garage collides with its query-string signature.
+  let storeInit;
+  const source = createApiSource({
+    base: "https://api.planto3d.in",
+    token: "ak_secret",
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith("/v1/uploads")) return jsonResponse({ job_id: "J", upload_url: "https://s3.planto3d.in/signed" });
+      if (url.startsWith("https://s3.")) storeInit = init;
+      return jsonResponse({});
+    },
+  });
+  await source.createJob(new Blob(["x"]), "plan.dxf", {});
+  const headers = storeInit.headers ?? {};
+  assert.ok(!("authorization" in headers), "no authorization header may reach the store");
+});
+
+test("a rejected upload surfaces the API's own message", async () => {
+  const source = createApiSource({
+    base: "https://api.planto3d.in",
+    token: "k",
+    fetchImpl: async () => jsonResponse({ detail: "unsupported format .txt; accepted: ['.dwg', '.dxf', '.pdf']" }, 400),
+  });
+  await assert.rejects(() => source.createJob(new Blob(["x"]), "notes.txt", {}), (error) => {
+    assert.match(error.message, /unsupported format/);
+    assert.equal(error.status, 400);
+    return true;
+  });
+});
+
+test("options with no value are not sent at all", async () => {
+  // start accepts a body of {} and treats every field as optional; sending
+  // nulls would fail validation.
+  let startBody;
+  const source = createApiSource({
+    base: "https://api.planto3d.in",
+    token: "k",
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith("/v1/uploads")) return jsonResponse({ job_id: "J", upload_url: "https://s3/x" });
+      if (url.includes("/start")) startBody = JSON.parse(init.body);
+      return jsonResponse({});
+    },
+  });
+  await source.createJob(new Blob(["x"]), "plan.dxf", { units_per_foot: null, height_ft: 10 });
+  assert.deepEqual(startBody, { height_ft: 10 });
+});
