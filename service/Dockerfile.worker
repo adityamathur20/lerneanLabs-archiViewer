@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+# The worker. Carries BOTH tiers, in two virtualenvs that never import each
+# other: the service venv is the image default, archiAgent lives in /opt/agent
+# and is reached only as a subprocess (spec §5.2, §5.3).
+#
+# Build context is the directory CONTAINING both repositories.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+# pymupdf and shapely ship wheels; opencv-python-headless needs libGL's
+# runtime even headless, and ifcopenshell wants libstdc++.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+# --- Tier 1, in its own venv -------------------------------------------------
+# Only the package and its metadata. Copying the whole repository would bake
+# .git (full history), .venv, docs and local scratch into an image published to
+# a registry — size, and a disclosure surface nothing needs.
+COPY lerneanLabs-archiAgent/pyproject.toml /opt/archiagent/
+COPY lerneanLabs-archiAgent/archiagent /opt/archiagent/archiagent
+RUN python -m venv /opt/agent \
+ && /opt/agent/bin/pip install --no-cache-dir "/opt/archiagent[llm,vision,cv]"
+
+# --- the service, as the image default ---------------------------------------
+WORKDIR /app
+COPY archiagent-viewer/service/pyproject.toml ./
+COPY archiagent-viewer/service/archiagent_service ./archiagent_service
+RUN pip install --no-cache-dir . \
+ && adduser --system --no-create-home --uid 10001 appuser
+USER appuser
+
+ENV ARCHIAGENT_SERVICE_ARCHIAGENT_PYTHON=/opt/agent/bin/python \
+    ARCHIAGENT_SERVICE_ARCHIAGENT_CWD=/opt/archiagent
+
+CMD ["rq", "worker", "archiagent"]
