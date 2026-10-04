@@ -4,7 +4,22 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+def repo_root_from(path: Path) -> Path:
+    """The checkout root that the sibling-repo defaults below hang off.
+
+    A development checkout is `<root>/archiagent-viewer/service/archiagent_service/`,
+    so the root is four levels up. Installed in a container it is
+    `/app/archiagent_service/`, which has no fourth level — and importing this
+    module must not fail there. The container sets the three paths below
+    explicitly, so the fallback only has to be harmless; it is a nonexistent
+    path rather than "/" so that a MISSING override fails loudly at use time
+    instead of resolving to something plausible.
+    """
+    parents = path.resolve().parents
+    return parents[3] if len(parents) > 3 else Path("/nonexistent")
+
+
+REPO_ROOT = repo_root_from(Path(__file__))
 
 
 class Settings(BaseSettings):
