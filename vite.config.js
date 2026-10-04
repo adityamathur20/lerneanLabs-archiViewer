@@ -128,6 +128,12 @@ function archiagentOutput() {
 export default {
   plugins: [archiagentOutput()],
   server: { port: 5173, open: false },
+  // main.js awaits at the top level (createFragViewer, loadList). Vite's
+  // default target is "modules", which resolves to browsers predating
+  // top-level await, so `vite build` has never succeeded — only `vite dev`,
+  // which does not apply this transform. Phase 6 serves a static build, so
+  // this is load-bearing. ES2022 is where top-level await landed.
+  build: { target: "es2022" },
   // web-ifc's .wasm arrives through @thatopen/fragments and must not be inlined.
   assetsInclude: ["**/*.wasm"],
   optimizeDeps: { exclude: ["@thatopen/fragments"] },
