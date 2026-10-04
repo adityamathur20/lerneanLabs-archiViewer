@@ -68,3 +68,10 @@ def test_an_unlisted_origin_gets_no_allow_header(cors_client, alice):
     # browser refuses to hand the body to that origin's script.
     assert response.status_code == 200
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_interactive_docs_and_schema_are_not_served(cors_client):
+    """A public host should not publish its own API surface. The only interface
+    is a hand-issued key, and the endpoints are documented in deploy/README.md."""
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert cors_client.get(path).status_code == 404, f"{path} must not be served"

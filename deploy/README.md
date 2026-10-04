@@ -319,5 +319,12 @@ Rollback: `IMAGE_TAG=<previous-sha> docker compose -f docker-compose.prod.yml up
   hand-issued key, which the browser keeps in `localStorage`. That is why
   there is no public upload form yet — a browser-held tenant key grants the
   whole tenant. Phase 7.
+- **Rate limits are per API key, 120 req/min, and per IP for anyone without a
+  key, 20 req/min** (`ARCHIAGENT_SERVICE_RATE_LIMIT_PER_MINUTE` /
+  `_RATE_LIMIT_ANON_PER_MINUTE`). `/healthz` and CORS preflights are exempt.
+  This is abuse control, not a billing quota — a key holder can still queue as
+  many jobs as the limit allows, and LLM spend caps belong with billing.
+- **No interactive docs.** `/docs`, `/redoc` and `/openapi.json` return 404 on
+  purpose; the endpoints are documented in section 9 above.
 - **One worker, concurrency 1.** Conversions queue rather than contend for the
   2 vCPUs. A second worker is a KVM 4 decision.

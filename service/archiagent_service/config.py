@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 200 * 1024 * 1024
     tenant_max_concurrent: int = 2
 
+    # Rate limits, per bucket, per minute. Authenticated callers are bucketed
+    # by API key; everyone else by IP, which is what limits key guessing. The
+    # anonymous limit is deliberately much lower — no legitimate caller reaches
+    # this API without a key.
+    rate_limit_per_minute: int = 120
+    rate_limit_anon_per_minute: int = 20
+
     # The viewer is a different origin in production (spec §4.4). The default
     # is the dev server, which is where it was same-origin until now.
     cors_origins: list[str] = ["http://localhost:5173"]

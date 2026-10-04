@@ -5,16 +5,17 @@ bytes — a 400 MB IFC goes straight from object storage to the client.
 """
 from pathlib import PurePosixPath
 
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from archiagent_service.auth import current_tenant, db_session, owned_job
 from archiagent_service.config import get_settings
 from archiagent_service.models import Job, Tenant, ulid
-from archiagent_service.queue import get_queue
+from archiagent_service.queue import get_queue, get_redis
+from archiagent_service.ratelimit import RateLimiter, client_bucket
 from archiagent_service.storage import get_store
 from archiagent_service.uploads import validate_upload
 
@@ -59,7 +60,46 @@ def _source_key(job: Job) -> str:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="archiAgent", version="0.1.0")
+    settings = get_settings()
+    app = FastAPI(
+        title="archiAgent",
+        version="0.1.0",
+        # No interactive docs or schema on a public host. The only interface is
+        # an API key issued by hand, the endpoints are documented in
+        # deploy/README.md, and a published schema is free reconnaissance.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @app.middleware("http")
+    async def rate_limit(request: Request, call_next):
+        """Refuses floods before they reach auth or the database.
+
+        Added BEFORE CORSMiddleware so CORS ends up outermost: a 429 emitted
+        outside CORS carries no allow-origin header, and the browser then
+        reports a CORS failure instead of a rate limit.
+        """
+        if request.url.path == "/healthz" or request.method == "OPTIONS":
+            # An uptime check must not be able to lock itself out, and a
+            # preflight 429 is indistinguishable from a CORS misconfiguration.
+            return await call_next(request)
+
+        authorization = request.headers.get("authorization")
+        bucket = client_bucket(authorization, request.client.host if request.client else "unknown")
+        limit = (
+            settings.rate_limit_per_minute
+            if bucket.startswith("key:")
+            else settings.rate_limit_anon_per_minute
+        )
+        verdict = RateLimiter(get_redis(), limit=limit, window_s=60).check(bucket)
+        if not verdict.allowed:
+            return JSONResponse(
+                {"detail": "rate limit exceeded"},
+                status_code=429,
+                headers={"Retry-After": str(verdict.retry_after_s)},
+            )
+        return await call_next(request)
 
     # Spec §4.4: planto3d.in -> api.planto3d.in is cross-origin, and the bearer
     # token makes every request non-simple, so the preflight must be answered.
@@ -67,7 +107,7 @@ def create_app() -> FastAPI:
     # cookie, and True would forbid the wildcard we never use anyway.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=get_settings().cors_origins,
+        allow_origins=settings.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["authorization", "content-type"],
