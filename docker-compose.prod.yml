@@ -60,6 +60,9 @@ services:
     # and worker wait via storage.wait_ready() instead.
 
   api:
+    # Both keys on purpose: `pull` is the normal path, `build` still works if
+    # CI is down, and IMAGE_TAG=<sha> is the rollback.
+    image: ghcr.io/adityamathur20/planto3d-api:${IMAGE_TAG:-latest}
     build: ./service
     restart: unless-stopped
     env_file: [.env]
@@ -78,6 +81,7 @@ services:
         exec uvicorn archiagent_service.api:app --host 0.0.0.0 --port 8000
 
   worker:
+    image: ghcr.io/adityamathur20/planto3d-worker:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: archiagent-viewer/service/Dockerfile.worker
