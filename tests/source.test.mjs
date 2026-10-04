@@ -2,6 +2,29 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApiSource, createDiskSource, SourceError } from "../src/source.js";
 
+/**
+ * A job exactly as `job_json()` in service/archiagent_service/api.py emits it.
+ * The previous fixtures were hand-written as {id, source_filename}, which the
+ * API never emits — so the tests passed while the viewer read undefined for
+ * every field. Fixtures for a contract you do not own must mirror the producer.
+ */
+const apiJob = ({ id, status = "succeeded", filename, artifacts = ["plan.ifc"] }) => ({
+  schema_version: 1,
+  job_id: id,
+  tenant_id: "01TENANT",
+  status,
+  source: { filename, bytes: 1234, converted_from_dwg: false },
+  options: {},
+  exit_code: 0,
+  acceptance: "checks-passed",
+  archiagent_version: "0.1.0",
+  artifacts,
+  timings_ms: {},
+  error: null,
+  created_at: "2026-10-04T00:00:00+00:00",
+  finished_at: "2026-10-04T00:01:00+00:00",
+});
+
 const jsonResponse = (body, status = 200) => ({
   ok: status >= 200 && status < 300,
   status,
@@ -32,9 +55,9 @@ test("api source lists only succeeded jobs that have a plan.ifc", async () => {
     fetchImpl: async () =>
       jsonResponse({
         jobs: [
-          { id: "A", status: "succeeded", artifacts: ["plan.ifc"], source_filename: "a.dxf" },
-          { id: "B", status: "running", artifacts: [], source_filename: "b.dxf" },
-          { id: "C", status: "succeeded", artifacts: ["plan.report.json"], source_filename: "c.pdf" },
+          apiJob({ id: "A", filename: "a.dxf" }),
+          apiJob({ id: "B", status: "running", filename: "b.dxf", artifacts: [] }),
+          apiJob({ id: "C", filename: "c.pdf", artifacts: ["plan.report.json"] }),
         ],
       }),
   });
@@ -84,4 +107,15 @@ test("disk source preserves the dev server contract", async () => {
   assert.equal(listed[0].id, "a/plan.ifc");
   await source.fetchIfc("a/plan.ifc");
   assert.equal(urls[1], "/api/model?path=a%2Fplan.ifc");
+});
+
+test("api source reads the field names job_json actually emits", () => {
+  // Regression: the viewer read job.id and job.source_filename. job_json emits
+  // job_id and nests the filename under source.filename, so every list entry
+  // rendered "undefined — undefined" and then fetched /jobs/undefined/...
+  const job = apiJob({ id: "01JOB", filename: "plan.dxf" });
+  assert.equal(job.id, undefined, "the API does not emit `id`");
+  assert.equal(job.source_filename, undefined, "the API does not emit `source_filename`");
+  assert.equal(job.job_id, "01JOB");
+  assert.equal(job.source.filename, "plan.dxf");
 });

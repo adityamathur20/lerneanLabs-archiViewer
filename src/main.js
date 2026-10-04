@@ -194,9 +194,19 @@ async function loadList() {
       );
       return;
     }
-    select.innerHTML = models
-      .map((m) => `<option value="${encodeURIComponent(m.id)}" data-name="${m.name}">${m.label}</option>`)
-      .join("");
+    // Built as nodes, not innerHTML: m.name/m.label come from an uploaded
+    // filename, and this page holds an API key in localStorage. The CSP would
+    // stop a script from running, but it should not be the only thing that does
+    // — and a filename containing a quote would corrupt the markup regardless.
+    select.replaceChildren(
+      ...models.map((m) => {
+        const option = document.createElement("option");
+        option.value = m.id;
+        option.dataset.name = m.name;
+        option.textContent = m.label;
+        return option;
+      }),
+    );
     await show(models[0].id, models[0].name);
   } catch (error) {
     if (error instanceof SourceError && error.status === 401) {
@@ -220,7 +230,7 @@ el("saveKey")?.addEventListener("click", () => {
 
 el("manifests").addEventListener("change", (event) => {
   const option = event.target.selectedOptions[0];
-  if (option?.value) show(decodeURIComponent(option.value), option.dataset.name ?? "model");
+  if (option?.value) show(option.value, option.dataset.name ?? "model");
 });
 el("reload").addEventListener("click", loadList);
 el("showGrid").addEventListener("change", () => {

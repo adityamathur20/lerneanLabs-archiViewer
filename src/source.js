@@ -46,10 +46,12 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
       const { jobs = [] } = await response.json();
       return jobs
         .filter((job) => job.status === "succeeded" && (job.artifacts ?? []).includes("plan.ifc"))
+        // Field names come from job_json() in api.py: `job_id`, and the
+        // filename nested under `source`. Not `id`/`source_filename`.
         .map((job) => ({
-          id: job.id,
-          name: job.source_filename ?? job.id,
-          label: `${job.source_filename ?? job.id} — ${job.id}`,
+          id: job.job_id,
+          name: job.source?.filename ?? job.job_id,
+          label: `${job.source?.filename ?? job.job_id} — ${job.job_id}`,
         }));
     },
 

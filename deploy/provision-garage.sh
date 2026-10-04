@@ -26,7 +26,11 @@ echo "==> key"
 if ! g key info "$KEY_NAME" >/dev/null 2>&1; then
   g key create "$KEY_NAME"
 fi
-g bucket allow --read --write --owner "$BUCKET" --key "$KEY_NAME"
+# --read --write only. NOT --owner: storage.py uses put/get/head/list/
+# delete-object exclusively, while owner adds bucket-level authority
+# (DeleteBucket, PutBucketWebsite) that would be reachable with a leaked
+# key over the public s3 endpoint.
+g bucket allow --read --write "$BUCKET" --key "$KEY_NAME"
 
 echo
 echo "==> put these in .env (shown once):"

@@ -46,17 +46,30 @@ function sites() {
   return out;
 }
 
+// Hostnames, not address lines: splitting or joining site blocks is a
+// formatting choice and must not fail a security test.
 const PUBLIC_HOSTS = [
   "planto3d.in",
   "www.planto3d.in",
-  "planto3d.si, www.planto3d.si",
+  "planto3d.si",
   "api.planto3d.in",
   "s3.planto3d.in",
 ];
 
 test("every expected public host has a site block", () => {
-  const found = Object.keys(sites());
-  for (const host of PUBLIC_HOSTS) assert.ok(found.includes(host), `no site block for ${host}`);
+  const served = Object.keys(sites()).flatMap((a) => a.split(",").map((h) => h.trim()));
+  for (const host of PUBLIC_HOSTS) assert.ok(served.includes(host), `no site block for ${host}`);
+});
+
+test("caddy serves no hostname the runbook has no DNS record for", () => {
+  // An unrecorded hostname cannot be validated, so Caddy retries it forever,
+  // spends failed-validation attempts, and fills the log with "obtaining
+  // certificate" — which is the one signal the operator checks to confirm
+  // certificate state persisted across a redeploy.
+  const served = Object.keys(sites()).flatMap((a) => a.split(",").map((h) => h.trim()));
+  for (const host of served) {
+    assert.ok(PUBLIC_HOSTS.includes(host), `${host} is served but has no DNS record in deploy/README.md`);
+  }
 });
 
 test("every public host imports the hardening snippet", () => {
@@ -114,11 +127,24 @@ test("the object store is reverse-proxied to the S3 port only, never the admin p
   assert.doesNotMatch(s3, /3903/, "Garage's admin API must not be exposed");
 });
 
-test("the object store allows exactly one origin, not a wildcard", () => {
+test("the object store allows any origin, because the redirect chain taints it", () => {
+  // Counter-intuitive, and verified in Chrome: planto3d.in -> api.planto3d.in
+  // -> 302 -> s3.planto3d.in is a redirect whose FIRST hop is already
+  // cross-origin, so the request reaches the store with `Origin: null`. An
+  // allow-origin of https://planto3d.in fails that check and every artifact
+  // download breaks. This test previously pinned the broken value.
   const s3 = sites()["s3.planto3d.in"];
   const acao = s3.match(/Access-Control-Allow-Origin "([^"]+)"/)[1];
-  assert.notEqual(acao, "*", "a wildcard would let any site read artifacts via a leaked presigned URL");
-  assert.equal(acao, "{$VIEWER_ORIGIN}");
+  assert.equal(acao, "*");
+});
+
+test("the object store never allows credentials alongside the wildcard", () => {
+  // This is what makes `*` safe: the presigned signature IS the credential, so
+  // a wildcard grants nothing that holding the URL did not. Adding
+  // Allow-Credentials would turn it into a real hole, and browsers forbid the
+  // combination anyway — fail here rather than discovering it in production.
+  const s3 = sites()["s3.planto3d.in"];
+  assert.doesNotMatch(s3, /Access-Control-Allow-Credentials/i);
 });
 
 test("dotfiles are not served from the web root", () => {

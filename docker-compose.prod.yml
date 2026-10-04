@@ -11,7 +11,9 @@ services:
     environment:
       ACME_EMAIL: ${ACME_EMAIL}
       VIEWER_ORIGIN: ${VIEWER_ORIGIN}
-      ACME_CA: ${ACME_CA}
+      # `:-` covers empty AND unset; Caddy's own {$VAR:default} covers only
+      # unset, and an empty value is a fatal parse error (not a fallback).
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./dist:/srv/viewer:ro
@@ -56,8 +58,13 @@ services:
       - ./deploy/garage.toml:/etc/garage.toml:ro
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
-    # No healthcheck: Garage ships no mechanism for one (spec §4.2). The api
-    # and worker wait via storage.wait_ready() instead.
+    # The scratch image carries /garage, and `garage status` is what
+    # provision-garage.sh already uses as its readiness probe — so compose CAN
+    # order startup behind it. Exec form, because there is no shell in scratch.
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      retries: 20
 
   api:
     # Both keys on purpose: `pull` is the normal path, `build` still works if
@@ -65,20 +72,29 @@ services:
     image: ghcr.io/adityamathur20/planto3d-api:${IMAGE_TAG:-latest}
     build: ./service
     restart: unless-stopped
-    env_file: [.env]
+    # Named variables, NOT `env_file: [.env]`. The api has no use for
+    # ANTHROPIC_API_KEY (spec §6 says worker only), and none at all for
+    # GARAGE_ADMIN_TOKEN — which it could otherwise carry to garage:3903 on
+    # this network and mint keys or delete buckets with. Least privilege is
+    # cheap here and limits the blast radius of an api-tier compromise.
     environment:
       ARCHIAGENT_SERVICE_DATABASE_URL: postgresql+psycopg://archiagent:${POSTGRES_PASSWORD}@postgres:5432/archiagent
       ARCHIAGENT_SERVICE_REDIS_URL: redis://redis:6379/0
+      ARCHIAGENT_SERVICE_S3_ENDPOINT: ${ARCHIAGENT_SERVICE_S3_ENDPOINT}
+      ARCHIAGENT_SERVICE_S3_BUCKET: ${ARCHIAGENT_SERVICE_S3_BUCKET}
+      ARCHIAGENT_SERVICE_S3_ACCESS_KEY: ${ARCHIAGENT_SERVICE_S3_ACCESS_KEY}
+      ARCHIAGENT_SERVICE_S3_SECRET_KEY: ${ARCHIAGENT_SERVICE_S3_SECRET_KEY}
+      ARCHIAGENT_SERVICE_CORS_ORIGINS: ${ARCHIAGENT_SERVICE_CORS_ORIGINS}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      garage: {condition: service_started}
-    command:
-      - sh
-      - -c
-      - >-
-        python -c "from archiagent_service.storage import get_store; get_store().wait_ready()" &&
-        exec uvicorn archiagent_service.api:app --host 0.0.0.0 --port 8000
+      garage: {condition: service_healthy}
+    # No boot-time store probe: S3_ENDPOINT is the PUBLIC https host, so any
+    # such check would need Caddy already serving a trusted certificate. On
+    # Let's Encrypt staging — which the runbook tells you to start on — the
+    # certificate is untrusted by design and boto3 refuses it, so both services
+    # crash-looped forever. Ordering is the garage healthcheck's job.
+    command: ["uvicorn", "archiagent_service.api:app", "--host", "0.0.0.0", "--port", "8000"]
 
   worker:
     image: ghcr.io/adityamathur20/planto3d-worker:${IMAGE_TAG:-latest}
@@ -86,20 +102,21 @@ services:
       context: ..
       dockerfile: archiagent-viewer/service/Dockerfile.worker
     restart: unless-stopped
-    env_file: [.env]
+    # The worker is the only tier that calls an LLM, so it is the only one
+    # given the key. Garage's RPC and admin secrets stay with garage.
     environment:
       ARCHIAGENT_SERVICE_DATABASE_URL: postgresql+psycopg://archiagent:${POSTGRES_PASSWORD}@postgres:5432/archiagent
       ARCHIAGENT_SERVICE_REDIS_URL: redis://redis:6379/0
+      ARCHIAGENT_SERVICE_S3_ENDPOINT: ${ARCHIAGENT_SERVICE_S3_ENDPOINT}
+      ARCHIAGENT_SERVICE_S3_BUCKET: ${ARCHIAGENT_SERVICE_S3_BUCKET}
+      ARCHIAGENT_SERVICE_S3_ACCESS_KEY: ${ARCHIAGENT_SERVICE_S3_ACCESS_KEY}
+      ARCHIAGENT_SERVICE_S3_SECRET_KEY: ${ARCHIAGENT_SERVICE_S3_SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      garage: {condition: service_started}
-    command:
-      - sh
-      - -c
-      - >-
-        python -c "from archiagent_service.storage import get_store; get_store().wait_ready()" &&
-        exec rq worker archiagent --url redis://redis:6379/0
+      garage: {condition: service_healthy}
+    command: ["rq", "worker", "archiagent", "--url", "redis://redis:6379/0"]
 
 volumes:
   caddy_data: {}

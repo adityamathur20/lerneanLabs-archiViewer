@@ -36,6 +36,11 @@ through it — see spec §7.4.
   gives intermittent IPv6-only failures that read as random downtime.
 - `s3.planto3d.in` is **not optional**: presigned URLs sign the host, so the
   browser must reach the same name the signature was made for (spec §4.3).
+- There is deliberately **no `www.planto3d.si`**. Caddy serves exactly these
+  five names; a sixth name with no record would be retried forever, spending
+  Let's Encrypt failed-validation attempts and filling the log with
+  "obtaining certificate" — which is the signal section 9 uses to confirm
+  certificate state persisted.
 
 ```bash
 for h in planto3d.in www.planto3d.in api.planto3d.in s3.planto3d.in planto3d.si; do
@@ -48,6 +53,10 @@ Let's Encrypt rate limit on failures, so do this first.
 
 ## 3. Harden the box
 
+**Everything in this section is as `root`. From section 4 onward you are
+`deploy`** — that boundary matters, because files created by root inside a
+deploy-owned tree make every later `git pull` fail.
+
 ```bash
 ssh root@VPS_IP
 adduser --disabled-password --gecos "" deploy
@@ -56,27 +65,49 @@ install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
 cp /root/.ssh/authorized_keys /home/deploy/.ssh/
 chown deploy:deploy /home/deploy/.ssh/authorized_keys
 
-sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+# Everything deploy needs to own, created now so deploy never needs sudo.
+install -d -o deploy -g deploy /srv/planto3d
+install -d -o deploy -g deploy /srv/planto3d/backups
+install -o deploy -g deploy /dev/null /var/log/planto3d-backup.log
+
+# SSH hardening goes in a drop-in, NOT sshd_config: Ubuntu cloud images ship
+# /etc/ssh/sshd_config.d/50-cloud-init.conf with `PasswordAuthentication yes`,
+# Include files are parsed first, and FIRST MATCH WINS — so editing
+# sshd_config alone can leave password auth on while printing no error.
+cat > /etc/ssh/sshd_config.d/99-hardening.conf <<'EOF'
+PasswordAuthentication no
+PermitRootLogin no
+KbdInteractiveAuthentication no
+EOF
 systemctl reload ssh
+
+# Verify it took, rather than assuming. These must print "no".
+sshd -T | grep -E '^(passwordauthentication|permitrootlogin|kbdinteractiveauthentication) '
 
 ufw default deny incoming && ufw default allow outgoing
 ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
 ufw --force enable
 
-apt-get update && apt-get install -y unattended-upgrades fail2ban
+apt-get update && apt-get install -y unattended-upgrades fail2ban rclone
 systemctl enable --now fail2ban
+fail2ban-client status sshd   # confirm the jail actually resolved
 ```
 
 **Open a second SSH session as `deploy` and confirm it works before closing the
 root one.** Locking yourself out here costs a VPS rebuild.
+
+Note on `ufw`: Docker writes its own iptables rules and bypasses ufw's INPUT
+chain for published ports. Only 80/443 are published and both are allowed
+anyway, so there is no gap today — but ufw is not what is protecting the
+container ports, the absence of port publishing is.
 
 If Docker was not preinstalled: `curl -fsSL https://get.docker.com | sh`
 
 ## 4. Clone
 
 ```bash
-sudo install -d -o deploy -g deploy /srv/planto3d && cd /srv/planto3d
+# /srv/planto3d was created in section 3; deploy owns it and needs no sudo.
+cd /srv/planto3d
 git clone https://github.com/adityamathur20/lerneanLabs-archiAgent.git
 git clone https://github.com/adityamathur20/lerneanLabs-archiViewer.git archiagent-viewer
 ```
@@ -229,14 +260,23 @@ is not persisting and you are on the path to a rate-limit lockout.
 `crontab -e` as `deploy`:
 
 ```
-17 2 * * * cd /srv/planto3d/archiagent-viewer && ./deploy/backup.sh >> /var/log/planto3d-backup.log 2>&1
+17 2 * * * cd /srv/planto3d/archiagent-viewer && OFFSITE_REMOTE=b2:planto3d-backups ./deploy/backup.sh >> /var/log/planto3d-backup.log 2>&1
 23 3 * * 0 cd /srv/planto3d/archiagent-viewer && ./deploy/restore-check.sh >> /var/log/planto3d-backup.log 2>&1
 ```
 
-**The offsite copy is still yours to add, and it is the part that matters.**
-`backup.sh` writes to `/var/backups/planto3d` and into the object store — both
-on the same disk. Pick one: `rclone` to Backblaze B2 (free to 10 GB), or `scp`
-to another machine.
+`backup.sh` writes to `/srv/planto3d/backups` (which `deploy` owns, created in
+section 3) and into the object store — **both on the same disk**. The offsite
+copy is what survives losing the VPS, so the script takes it directly:
+
+```bash
+rclone config          # add a remote, e.g. Backblaze B2 named "b2"
+# then add OFFSITE_REMOTE to the cron lines above:
+#   OFFSITE_REMOTE=b2:planto3d-backups ./deploy/backup.sh
+```
+
+Until `OFFSITE_REMOTE` is set, every run prints a warning to stderr and the
+backup protects you against nothing but a bad migration. Spec §12.7 is not
+satisfied until this is configured.
 
 Artifacts are regenerable from the source upload; the job index is not. If you
 only protect one thing, protect Postgres.
@@ -248,10 +288,25 @@ cd /srv/planto3d/archiagent-viewer && git pull
 cd ../lerneanLabs-archiAgent && git pull && cd -
 docker run --rm -v "$PWD":/app -w /app -e VITE_API_BASE=https://api.planto3d.in \
   node:22-alpine sh -c "npm ci && npm run build"
-docker compose -f docker-compose.prod.yml pull || docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+GHCR packages are **private by default**, so authenticate once before the
+first `pull` — otherwise it 401s:
+
+```bash
+# A classic PAT with read:packages only.
+echo "$GHCR_TOKEN" | docker login ghcr.io -u adityamathur20 --password-stdin
+```
+
+There is deliberately no `|| build` fallback: it swallowed the 401 and silently
+recompiled ifcopenshell on the box for ten minutes, which is the cost GHCR
+exists to remove. If `pull` fails, fix the login or run `build` on purpose.
+
+The workflow publishes on pushes to `main` and on tags, so no image exists
+until this branch is merged — until then, use `docker compose build`.
 
 Rollback: `IMAGE_TAG=<previous-sha> docker compose -f docker-compose.prod.yml up -d`
 

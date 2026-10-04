@@ -19,7 +19,13 @@ export const FRAG_MIN_BYTES = 1024;
  */
 export function wasmLocation() {
   if (typeof window !== "undefined") {
-    return { path: "/node_modules/web-ifc/", absolute: false };
+    // Served from public/web-ifc/, which Vite copies verbatim into dist/ and
+    // the dev server serves at the same path, so dev and production resolve
+    // identically. This was previously a node-modules path, which only works
+    // under `vite dev` (it serves that directory over HTTP). In a production
+    // build the viewer's `try_files {path} /index.html` then handed web-ifc
+    // index.html instead of a module, and nothing could render at all.
+    return { path: "/web-ifc/", absolute: false };
   }
   return {
     path: new URL("../node_modules/web-ifc/", import.meta.url).pathname,

@@ -6,10 +6,20 @@
 	#   ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
 	# Unset means production. Staging certs are untrusted by browsers BY DESIGN —
 	# that is the signal you are still on staging, not a failure.
-	acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+	# Bare, NOT {$ACME_CA:default}: Caddy's own default syntax only applies when
+	# the variable is UNSET, and compose always sets it. An empty value reached
+	# this line as `acme_ca` with no argument — a fatal parse error that took
+	# the whole proxy down. compose supplies the production URL with `:-`.
+	acme_ca {$ACME_CA}
 	# Do not advertise the server or its version.
 	servers {
-		trusted_proxies static private_ranges
+		# Slow-request exhaustion is open by default.
+		timeouts {
+			read_body 30s
+			read_header 10s
+			write 120s
+			idle 2m
+		}
 	}
 }
 
@@ -43,11 +53,18 @@ planto3d.in {
 
 	# Dotfiles are never content. Without this a stray .env or .git copied into
 	# the web root would be served.
-	@hidden path_regexp /\.
-	respond @hidden 404
-
-	try_files {path} /index.html
-	file_server
+	#
+	# Inside a `route` so this runs BEFORE try_files. Caddy sorts directives by
+	# its own order otherwise, and try_files rewrote a non-existent dotfile to
+	# /index.html — which then no longer matched /\. and returned 200 with the
+	# page body. The existing-file case was still refused, so nothing leaked,
+	# but the post-deploy scan's own check failed on a correct deploy.
+	route {
+		@hidden path_regexp /\.
+		respond @hidden 404
+		try_files {path} /index.html
+		file_server
+	}
 }
 
 www.planto3d.in {
@@ -57,7 +74,7 @@ www.planto3d.in {
 
 # Held defensively, not a second deployment (spec §3.1). {uri} is this
 # request's own path and query, so this cannot redirect off-domain.
-planto3d.si, www.planto3d.si {
+planto3d.si {
 	import hardened
 	redir https://planto3d.in{uri} permanent
 }
@@ -65,6 +82,15 @@ planto3d.si, www.planto3d.si {
 # --- the API ----------------------------------------------------------------
 api.planto3d.in {
 	import hardened
+
+	# FastAPI reads the whole body BEFORE dependencies run, so the 401 is
+	# decided after the bytes are already in memory: an anonymous POST with a
+	# multi-GB body would OOM a box that is also running Postgres, Redis,
+	# Garage and a conversion. Uploads do not come through here — they go
+	# straight to the object store via a presigned PUT.
+	request_body {
+		max_size 64KB
+	}
 	# An API response is never a document; if one is ever reflected to a
 	# browser it must not execute.
 	header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
@@ -79,10 +105,17 @@ api.planto3d.in {
 s3.planto3d.in {
 	import hardened
 
-	# fetch() follows the API's 302 here, and the FINAL response is the one
-	# whose CORS headers are checked (spec §4.4). A presigned GET sends no
-	# custom headers, so there is no preflight to answer — only this.
-	header Access-Control-Allow-Origin "{$VIEWER_ORIGIN}"
+	# fetch() follows the API's 302 here and the FINAL response is the one whose
+	# CORS headers are checked. It must be `*`, not the viewer origin: the first
+	# hop (planto3d.in -> api.planto3d.in) is already cross-origin, so the Fetch
+	# spec marks the chain tainted and this request arrives with `Origin: null`.
+	# A header of https://planto3d.in then fails the check and every download
+	# breaks — verified in Chrome.
+	#
+	# `*` is safe here precisely because the presigned signature IS the
+	# credential: credentials mode is never `include`, no cookie is in play, and
+	# a wildcard grants nothing that holding the URL did not already grant.
+	header Access-Control-Allow-Origin "*"
 	header Access-Control-Expose-Headers "ETag, Content-Length"
 	header Vary "Origin"
 	# Artifacts are data. Never let one execute as a document.

@@ -4,7 +4,6 @@ Spec §7.4: everything else calls put/get/presign/delete_prefix and never learns
 whether that is S3Mock, MinIO, S3 or a directory. Swapping the backing store is
 a config change, not a rewrite.
 """
-import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -43,27 +42,6 @@ class ObjectStore:
             self._client.head_bucket(Bucket=self.bucket)
         except ClientError:
             self._client.create_bucket(Bucket=self.bucket)
-
-    def wait_ready(self, attempts: int = 30, delay: float = 2.0) -> None:
-        """Blocks until the store answers at all, or raises.
-
-        Garage ships no container healthcheck (spec §4.2), so compose cannot
-        order the api and worker behind it. A ClientError means it answered —
-        including 404 for a missing bucket — and only a transport failure is
-        worth retrying. Creating the bucket is provisioning's job.
-        """
-        last: Exception | None = None
-        for attempt in range(attempts):
-            try:
-                self._client.head_bucket(Bucket=self.bucket)
-                return
-            except ClientError:
-                return  # it answered; the bucket's existence is not our business
-            except Exception as error:  # transport: not up yet
-                last = error
-                if attempt < attempts - 1:
-                    time.sleep(delay)
-        raise RuntimeError(f"object store not reachable after {attempts} attempts: {last}")
 
     def put(self, key: str, data: bytes) -> None:
         self._client.put_object(Bucket=self.bucket, Key=key, Body=data)
