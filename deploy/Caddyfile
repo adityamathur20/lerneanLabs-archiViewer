@@ -51,6 +51,12 @@ planto3d.in {
 	root * /srv/viewer
 	encode zstd gzip
 
+	# Vite hashes every asset name, so these are immutable. Without this the
+	# box re-compresses ~14 MB per cold visit, and CPU is the one resource
+	# spec §11 says is scarce.
+	@assets path /assets/* /web-ifc/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
 	# Dotfiles are never content. Without this a stray .env or .git copied into
 	# the web root would be served.
 	#
