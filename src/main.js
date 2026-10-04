@@ -1,6 +1,27 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createFragViewer } from "./frag-viewer.js";
+import { createApiSource, createDiskSource, SourceError } from "./source.js";
+
+// Unset means the dev server: local development keeps working untouched.
+const API_BASE = import.meta.env?.VITE_API_BASE ?? "";
+const KEY_STORAGE = "planto3d.apiKey";
+
+function readKey() {
+  try {
+    return localStorage.getItem(KEY_STORAGE) ?? "";
+  } catch {
+    return ""; // private mode, blocked storage: degrade, never throw
+  }
+}
+
+function buildSource() {
+  return API_BASE
+    ? createApiSource({ base: API_BASE, token: readKey() })
+    : createDiskSource({});
+}
+
+let source = buildSource();
 
 const el = (id) => document.getElementById(id);
 const status = el("status");
@@ -82,46 +103,18 @@ async function show(relativePath, name) {
   el("notes").textContent = "";
   await viewer.clear();
 
-  // Prefer a precomputed .frag: the conversion cost is then paid once per model
-  // at job time rather than once per page load. Falling back to converting the
-  // IFC in-browser is what keeps invariant I2 true — losing every .frag is
-  // harmless.
-  const fragPath = relativePath.replace(/\.ifc$/i, ".frag");
-  const fragResponse = await fetch(`/api/frag?path=${encodeURIComponent(fragPath)}`);
-  if (fragResponse.ok) {
-    status.textContent = `loading ${name}… (precomputed)`;
-    const builtAt = fragResponse.headers.get("x-frag-built-at");
-    try {
-      const model = await viewer.loadFrag(await fragResponse.arrayBuffer(), name);
-      if (model) {
-        const framed = await frameCamera(model);
-        el("source").innerHTML = `<code>${fragPath}</code>`;
-        el("stats").innerHTML = table([
-          ["source", "precomputed .frag"],
-          ["built", builtAt ? new Date(builtAt).toLocaleString() : "—"],
-          ["geometry", framed ? "present" : "none"],
-        ]);
-        if (framed) status.style.display = "none";
-        else fail(`${name}: no geometry in this model`);
-        return;
-      }
-    } catch (error) {
-      // The cache is never allowed to be terminal (invariant I2): a truncated
-      // or half-written .frag must cost a re-conversion, not the model. Clear
-      // first — a partially registered modelId would collide below.
-      await viewer.clear();
-      el("notes").textContent =
-        `Precomputed fragments were unusable (${error.message}); rebuilt from the IFC.`;
+  let bytes;
+  try {
+    bytes = await source.fetchIfc(relativePath);
+  } catch (error) {
+    if (error instanceof SourceError && error.status === 401) {
+      el("auth").style.display = "";
+      fail("API key missing or rejected — enter a key and reload.");
+    } else {
+      fail(`failed: ${error.message}`);
     }
-  }
-
-  const response = await fetch(`/api/model?path=${encodeURIComponent(relativePath)}`);
-  if (!response.ok) {
-    const { error } = await response.json().catch(() => ({ error: response.statusText }));
-    fail(`failed: ${error}`);
     return;
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
 
   let model;
   try {
@@ -190,25 +183,54 @@ renderer.domElement.addEventListener("click", async (event) => {
 async function loadList() {
   const select = el("manifests");
   try {
-    const { root, models } = await (await fetch("/api/models")).json();
-    el("root").textContent = `scanning ${root}`;
+    const models = await source.list();
+    el("root").textContent = `reading ${source.describe()}`;
     if (models.length === 0) {
-      select.innerHTML = "<option value=''>no *.ifc found</option>";
-      fail("No IFC files found. Set ARCHIAGENT_OUT to your archiAgent --outputDir.");
+      select.innerHTML = "<option value=''>no models found</option>";
+      fail(
+        source.kind === "api"
+          ? "No succeeded jobs yet. Upload a DXF or PDF to the API first."
+          : "No IFC files found. Set ARCHIAGENT_OUT to your archiAgent --outputDir.",
+      );
       return;
     }
-    select.innerHTML = models
-      .map((m) => `<option value="${encodeURIComponent(m.path)}" data-name="${m.name}">${m.name} — ${m.path}</option>`)
-      .join("");
-    await show(models[0].path, models[0].name);
+    // Built as nodes, not innerHTML: m.name/m.label come from an uploaded
+    // filename, and this page holds an API key in localStorage. The CSP would
+    // stop a script from running, but it should not be the only thing that does
+    // — and a filename containing a quote would corrupt the markup regardless.
+    select.replaceChildren(
+      ...models.map((m) => {
+        const option = document.createElement("option");
+        option.value = m.id;
+        option.dataset.name = m.name;
+        option.textContent = m.label;
+        return option;
+      }),
+    );
+    await show(models[0].id, models[0].name);
   } catch (error) {
+    if (error instanceof SourceError && error.status === 401) {
+      el("auth").style.display = "";
+      fail("API key missing or rejected — enter a key below, then Save.");
+      return;
+    }
     fail(`Could not list models: ${error.message}`, error.stack ?? String(error));
   }
 }
 
+el("saveKey")?.addEventListener("click", () => {
+  try {
+    localStorage.setItem(KEY_STORAGE, el("apiKey").value.trim());
+  } catch {
+    /* storage blocked: the key lives for this page only */
+  }
+  source = buildSource();
+  loadList();
+});
+
 el("manifests").addEventListener("change", (event) => {
   const option = event.target.selectedOptions[0];
-  if (option?.value) show(decodeURIComponent(option.value), option.dataset.name ?? "model");
+  if (option?.value) show(option.value, option.dataset.name ?? "model");
 });
 el("reload").addEventListener("click", loadList);
 el("showGrid").addEventListener("change", () => {

@@ -71,8 +71,12 @@
 
       <h2>Model</h2>
       <select id="manifests"><option value="">loading…</option></select>
-      <button id="reload">Reload from disk</button>
+      <button id="reload">Reload</button>
       <div class="sub" id="root" style="margin-top:8px"></div>
+      <div id="auth" style="margin-top:8px; display:none">
+        <input id="apiKey" type="password" placeholder="API key (ak_…)" style="width:100%" />
+        <button id="saveKey" style="margin-top:4px">Save key</button>
+      </div>
 
       <h2>Source</h2>
       <div id="source"><span class="none">—</span></div>

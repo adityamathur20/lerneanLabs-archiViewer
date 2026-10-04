@@ -16,6 +16,11 @@ LIVE = ("running",)
 
 
 @lru_cache
+def get_redis() -> Redis:
+    """One connection pool, shared by the queue and the rate limiter."""
+    return Redis.from_url(get_settings().redis_url)
+
+
 def get_queue() -> Queue:
     settings = get_settings()
     # Jobs are minutes long: vision escalation and LLM classification dominate.

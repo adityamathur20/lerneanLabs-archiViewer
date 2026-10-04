@@ -10,12 +10,17 @@
  * surface is what that handler will call. Do not inline it into main.js.
  */
 import { FragmentsModels } from "@thatopen/fragments";
+// Vite emits the worker beside the bundle and hands back a same-origin URL.
+// The alternative, FragmentsModels.getWorker(), fetches it from unpkg.com at
+// runtime: third-party JavaScript in the page that holds the user's API key,
+// plus an availability and privacy dependency on a CDN we do not control.
+import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 import { ifcToFrag } from "./ifc-to-frag.js";
 
 export async function createFragViewer({ scene, camera, controls }) {
-  // Fetches the worker matching this library version and returns a blob URL.
-  const workerUrl = await FragmentsModels.getWorker();
-  const fragments = new FragmentsModels(workerUrl);
+  // Same-origin, and version-matched because it comes from the installed
+  // package rather than from a CDN path built out of the version string.
+  const fragments = new FragmentsModels(fragmentsWorkerUrl);
 
   let current = null;
   const added = new Set();

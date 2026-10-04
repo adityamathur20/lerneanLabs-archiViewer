@@ -5,3 +5,7 @@ dist/
 service/.venv/
 service/**/__pycache__/
 .pytest_cache/
+# Production secrets live only on the VPS (spec §6). .env.example is tracked.
+.env
+.env.*
+!.env.example
