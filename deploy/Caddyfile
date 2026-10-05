@@ -121,7 +121,12 @@ s3.planto3d.in {
 	# `*` is safe here precisely because the presigned signature IS the
 	# credential: credentials mode is never `include`, no cookie is in play, and
 	# a wildcard grants nothing that holding the URL did not already grant.
-	header Access-Control-Allow-Origin "*"
+	# NOTE: the allow-origin header is set via reverse_proxy's header_down
+	# below, NOT here. Garage emits its own `Access-Control-Allow-Origin: *`,
+	# and a `header` directive ADDS to that rather than replacing it — giving
+	# two identical values, which browsers reject outright ("contains multiple
+	# values"). Observed live: curl was happy, a browser would not have been.
+	# header_down replaces, because it runs after the proxy writes.
 
 	# The browser's presigned PUT needs a preflight ANSWERED, not just a
 	# response header: a GET with no custom headers is a simple request, but
@@ -137,7 +142,6 @@ s3.planto3d.in {
 		header Access-Control-Max-Age "600"
 		respond 204
 	}
-	header Access-Control-Expose-Headers "ETag, Content-Length"
 	header Vary "Origin"
 	# Artifacts are data. Never let one execute as a document.
 	header Content-Security-Policy "default-src 'none'"
@@ -145,5 +149,10 @@ s3.planto3d.in {
 
 	# Only the S3 data path. Garage's admin API (:3903) is NOT proxied, and
 	# bucket-level operations are not reachable through a single-bucket path.
-	reverse_proxy garage:3900
+	reverse_proxy garage:3900 {
+		# header_down REPLACES, so Garage's own copy does not survive
+		# alongside ours. `header` would have appended instead.
+		header_down Access-Control-Allow-Origin "*"
+		header_down Access-Control-Expose-Headers "ETag, Content-Length"
+	}
 }

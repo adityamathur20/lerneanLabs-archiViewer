@@ -65,10 +65,15 @@ const s3 = await head(`https://s3.${base}/`, { headers: { Origin: `https://${bas
 const acao = s3.headers?.get?.("access-control-allow-origin") ?? "";
 // Requires a real response: on an unreachable host "" !== "*" would pass and
 // report safety that was never checked. A security tool must not do that.
+// Exactly one value, and it must be the wildcard (see spec §4.4 on the
+// tainted redirect chain). This check previously only rejected the literal
+// "*", so a DUPLICATED header arrived as "*, *" and passed — while a browser
+// would have refused it for containing multiple values. Live deployment had
+// exactly that, because Garage emits its own copy.
 check(
-  "object store ACAO is not a wildcard",
-  s3.status > 0 && acao !== "*",
-  s3.status === 0 ? "host unreachable — NOT verified" : acao || "absent",
+  "object store sends exactly one allow-origin value",
+  s3.status > 0 && acao === "*",
+  s3.status === 0 ? "host unreachable — NOT verified" : `"${acao}"`,
 );
 check("object store rejects anonymous access", [401, 403].includes(s3.status), `HTTP ${s3.status}`);
 
