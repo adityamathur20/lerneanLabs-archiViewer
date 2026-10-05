@@ -125,6 +125,20 @@ test("the worker carries a complete LLM configuration", () => {
   assert.match(worker, /ARCHIAGENT_LLM_MODEL: "meta\/llama-3\.2-90b-vision-instruct"/);
 });
 
+test("a per-call LLM timeout is set, and sits below the conversion timeout", () => {
+  // Measured: a two-token completion hung 4h15m against a stalled provider
+  // before returning 504, because no timeout was configured. One worker at
+  // concurrency 1 means that is the entire service stopped.
+  const worker = serviceBlocks().find((b) => b.trim().startsWith("worker:"));
+  const llm = Number(worker.match(/ARCHIAGENT_LLM_TIMEOUT: "(\d+)"/)?.[1]);
+  assert.ok(llm > 0, "ARCHIAGENT_LLM_TIMEOUT must be set; unset is unbounded in practice");
+  const cli = Number(compose.match(/CLI_TIMEOUT_S:-(\d+)/)[1]);
+  assert.ok(
+    llm < cli,
+    `LLM timeout ${llm}s must sit below the CLI timeout ${cli}s, or the process is killed before it can say which provider failed`,
+  );
+});
+
 test("the queue timeout stays larger than the conversion timeout", () => {
   // Measured: a 79-layer DXF took 31m42s. If RQ kills the job first, the
   // CLI's own timeout never applies and the traceback is never recorded.

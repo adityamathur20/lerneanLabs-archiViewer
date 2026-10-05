@@ -327,6 +327,13 @@ Rollback: `IMAGE_TAG=<previous-sha> docker compose -f docker-compose.prod.yml up
   shell override `.env`, so a stray `ARCHIAGENT_LLM_MODEL` in a profile would
   silently change the deployed model. Only `OPENAI_API_KEY` (the `nvapi-…`
   key) comes from the environment. To change model, edit compose.
+- **A per-call LLM timeout is mandatory, and set to 900s.** Left unset it is
+  unbounded in practice: a two-token completion against NVIDIA's
+  `llama-3.2-90b-vision-instruct` was measured hanging **4h15m** before
+  returning a 504. With one worker at concurrency 1, that is the whole service
+  stopped by someone else's capacity problem. It sits below the CLI timeout on
+  purpose, so the failure records *which provider failed* rather than just
+  "archiagent timed out".
 - **A conversion can take 30+ minutes.** Measured: an 8 MB / 79-layer DXF took
   31m42s. `ARCHIAGENT_SERVICE_CLI_TIMEOUT_S` is 5400 and the queue timeout
   7200; the queue's must stay the larger of the two or RQ kills the job before

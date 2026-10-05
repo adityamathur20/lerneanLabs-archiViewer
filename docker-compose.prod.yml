@@ -129,6 +129,16 @@ services:
       ARCHIAGENT_LLM_PROVIDER: "openai"
       ARCHIAGENT_LLM_BASE_URL: "https://integrate.api.nvidia.com/v1"
       ARCHIAGENT_LLM_MODEL: "meta/llama-3.2-90b-vision-instruct"
+      # A PER-CALL ceiling, and it is not optional. Left unset, a stalled
+      # provider is effectively unbounded: a two-token completion against
+      # NVIDIA's llama-3.2-90b was measured hanging 4h15m before returning a
+      # 504. With one worker at concurrency 1 that is the whole service
+      # stopped by someone else's capacity problem.
+      #
+      # Well below ARCHIAGENT_SERVICE_CLI_TIMEOUT_S on purpose: the CLI
+      # timeout killing the process records "archiagent timed out", while an
+      # LLM timeout inside it records which provider failed and why.
+      ARCHIAGENT_LLM_TIMEOUT: "900"
       ARCHIAGENT_SERVICE_CLI_TIMEOUT_S: ${ARCHIAGENT_SERVICE_CLI_TIMEOUT_S:-5400}
       ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S: ${ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S:-7200}
     depends_on:
