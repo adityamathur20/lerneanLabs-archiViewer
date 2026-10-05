@@ -128,7 +128,19 @@ services:
       # only the secret comes from the environment.
       ARCHIAGENT_LLM_PROVIDER: "openai"
       ARCHIAGENT_LLM_BASE_URL: "https://integrate.api.nvidia.com/v1"
-      ARCHIAGENT_LLM_MODEL: "meta/llama-3.2-90b-vision-instruct"
+      # kimi-k3, chosen on measurement rather than size. Against the same
+      # drawing, llama-3.2-90b made ONE text call and skipped both the vision
+      # escalation and wall adjudication entirely (154 walls, ~9 min, and
+      # separately observed hanging 4h15m before a 504). kimi-k3 ran the full
+      # pipeline — 1 text + 5 vision classify + 5 vision adjudication — in
+      # 2m37s and found 169 walls. It costs ~15x the input tokens (52k vs
+      # 3.5k) to do the work the 90b was not doing.
+      #
+      # llama-3.2-11b is NOT a fallback: it is fast but emitted 2600 tokens of
+      # invalid JSON on the real prompt. An endpoint ACCEPTING json_schema does
+      # not mean the model honours it, so any model swap must be re-verified
+      # against a real drawing, never a toy prompt.
+      ARCHIAGENT_LLM_MODEL: "moonshotai/kimi-k3"
       # A PER-CALL ceiling, and it is not optional. Left unset, a stalled
       # provider is effectively unbounded: a two-token completion against
       # NVIDIA's llama-3.2-90b was measured hanging 4h15m before returning a

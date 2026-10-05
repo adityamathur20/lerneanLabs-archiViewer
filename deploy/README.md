@@ -321,12 +321,15 @@ Rollback: `IMAGE_TAG=<previous-sha> docker compose -f docker-compose.prod.yml up
   credential exposure that listing did not already have. A browser-held key
   still grants that whole tenant, which is why keys are hand-issued and
   revocable (delete the `api_keys` row) rather than self-served. Phase 7.
-- **The LLM is NVIDIA-hosted `meta/llama-3.2-90b-vision-instruct`**, reached
+- **The LLM is NVIDIA-hosted `moonshotai/kimi-k3`**, reached
   with `provider=openai` plus a base URL. Provider, base URL and model are
   **pinned in `docker-compose.prod.yml`, not `.env`** — compose lets the host
   shell override `.env`, so a stray `ARCHIAGENT_LLM_MODEL` in a profile would
   silently change the deployed model. Only `OPENAI_API_KEY` (the `nvapi-…`
-  key) comes from the environment. To change model, edit compose.
+  key) comes from the environment. To change model, edit compose — and
+  re-verify against a REAL drawing, because `llama-3.2-11b` passed a toy
+  json_schema test and then emitted 2600 tokens of invalid JSON on the actual
+  classification prompt.
 - **A per-call LLM timeout is mandatory, and set to 900s.** Left unset it is
   unbounded in practice: a two-token completion against NVIDIA's
   `llama-3.2-90b-vision-instruct` was measured hanging **4h15m** before

@@ -122,7 +122,7 @@ test("the worker carries a complete LLM configuration", () => {
       `${v} must be a literal value, or the host shell can override it`,
     );
   }
-  assert.match(worker, /ARCHIAGENT_LLM_MODEL: "meta\/llama-3\.2-90b-vision-instruct"/);
+  assert.match(worker, /ARCHIAGENT_LLM_MODEL: "moonshotai\/kimi-k3"/);
 });
 
 test("a per-call LLM timeout is set, and sits below the conversion timeout", () => {
