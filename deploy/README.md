@@ -74,10 +74,13 @@ install -o deploy -g deploy /dev/null /var/log/planto3d-backup.log
 # /etc/ssh/sshd_config.d/50-cloud-init.conf with `PasswordAuthentication yes`,
 # Include files are parsed first, and FIRST MATCH WINS — so editing
 # sshd_config alone can leave password auth on while printing no error.
-cat > /etc/ssh/sshd_config.d/99-hardening.conf <<'EOF'
+cat > /etc/ssh/sshd_config.d/01-hardening.conf <<'EOF'
 PasswordAuthentication no
-PermitRootLogin no
 KbdInteractiveAuthentication no
+# Key-only root, not `no`: the deploy user deliberately has no sudo, so this
+# keeps one administrative path rather than leaving the provider's recovery
+# console as the only way back in.
+PermitRootLogin prohibit-password
 EOF
 systemctl reload ssh
 
