@@ -166,11 +166,14 @@ only once everything else works, then `docker compose up -d caddy`.
 ```bash
 cd /srv/planto3d/archiagent-viewer
 docker compose -f docker-compose.prod.yml up -d garage
-./deploy/provision-garage.sh        # prints the key id and secret
+./deploy/provision-garage.sh        # writes the keys into .env for you
 ```
 
-Paste both into `.env` as `ARCHIAGENT_SERVICE_S3_ACCESS_KEY` and
-`ARCHIAGENT_SERVICE_S3_SECRET_KEY`. The secret is shown once.
+The script writes both keys straight into `.env` and deliberately does **not**
+print the secret: a secret echoed to a terminal ends up in scrollback, in CI
+logs and in any transcript of the session. If you ever need it, read it with
+`docker compose -f docker-compose.prod.yml exec -T garage /garage key info
+archiagent-service --show-secret` — and rotate it afterwards.
 
 Leave `ARCHIAGENT_SERVICE_S3_ENDPOINT=https://s3.planto3d.in`. Pointing it at
 `http://garage:3900` makes every browser download fail while `curl` on the box

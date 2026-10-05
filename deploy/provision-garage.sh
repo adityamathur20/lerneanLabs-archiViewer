@@ -32,6 +32,30 @@ fi
 # key over the public s3 endpoint.
 g bucket allow --read --write "$BUCKET" --key "$KEY_NAME"
 
-echo
-echo "==> put these in .env (shown once):"
-g key info "$KEY_NAME" --show-secret | grep -Ei 'key id|secret'
+# Written straight into .env rather than printed. A secret echoed to a
+# terminal ends up in scrollback, in CI logs, and in any transcript of the
+# session — which happened once and cost a key rotation.
+echo "==> writing the access key into .env"
+python3 - "$KEY_NAME" <<'PYEOF'
+import re, subprocess, sys
+from pathlib import Path
+name = sys.argv[1]
+out = subprocess.run(
+    ["docker", "compose", "-f", "docker-compose.prod.yml", "exec", "-T", "garage",
+     "/garage", "key", "info", name, "--show-secret"],
+    capture_output=True, text=True, check=False).stdout
+ak = re.search(r"Key ID:\s*(\S+)", out)
+sk = re.search(r"Secret key:\s*(\S+)", out)
+if not (ak and sk):
+    sys.exit("could not read the key; run `garage key info` by hand")
+env = Path(".env")
+if not env.exists():
+    sys.exit(".env does not exist yet; copy it from .env.example first")
+s = env.read_text()
+s = re.sub(r"^ARCHIAGENT_SERVICE_S3_ACCESS_KEY=.*$",
+           f"ARCHIAGENT_SERVICE_S3_ACCESS_KEY={ak.group(1)}", s, flags=re.M)
+s = re.sub(r"^ARCHIAGENT_SERVICE_S3_SECRET_KEY=.*$",
+           f"ARCHIAGENT_SERVICE_S3_SECRET_KEY={sk.group(1)}", s, flags=re.M)
+env.write_text(s)
+print(f"   access key {ak.group(1)[:12]}… written; secret not printed")
+PYEOF
