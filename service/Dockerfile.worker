@@ -25,8 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # a registry — size, and a disclosure surface nothing needs.
 COPY lerneanLabs-archiAgent/pyproject.toml /opt/archiagent/
 COPY lerneanLabs-archiAgent/archiagent /opt/archiagent/archiagent
+# pytest is a RUNTIME dependency here, not a test one. archiAgent validates
+# every authored IFC with ifcopenshell.validate(..., express_rules=True), and
+# executing those EXPRESS rules imports _pytest. Without it, validation fails
+# with "No module named '_pytest'" and every conversion is downgraded to
+# `draft` — which is exactly what happened on the first live deployment, while
+# passing locally because a dev venv has pytest already.
 RUN python -m venv /opt/agent \
- && /opt/agent/bin/pip install --no-cache-dir "/opt/archiagent[llm,vision,cv]"
+ && /opt/agent/bin/pip install --no-cache-dir "/opt/archiagent[llm,vision,cv]" pytest
 
 # --- the service, as the image default ---------------------------------------
 WORKDIR /app

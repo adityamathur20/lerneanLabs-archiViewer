@@ -211,6 +211,20 @@ EOF
 Save the key — only its hash is stored. Paste it into the viewer's key field at
 `https://planto3d.in`.
 
+### 8a. Confirm the worker can actually validate an IFC
+
+```bash
+docker compose -f docker-compose.prod.yml cp deploy/validate-image-check.py worker:/tmp/vc.py
+docker compose -f docker-compose.prod.yml exec -T worker /opt/agent/bin/python /tmp/vc.py
+```
+
+Must print `OK`. If it reports a missing module, every conversion will still
+produce a geometrically correct IFC but be reported as **`failed` /
+`acceptance: draft`**, because `ifcopenshell.validate(..., express_rules=True)`
+could not run. That happened on the first live deployment: `pytest` is a
+runtime dependency of the EXPRESS rules, and it was absent from the image while
+present in the dev venv.
+
 ## 9. Verify (spec §12)
 
 ```bash
