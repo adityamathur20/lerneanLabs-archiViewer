@@ -11,20 +11,22 @@ def test_command_shells_out_and_never_imports_archiagent():
         Path("/venv/bin/python"),
         Path("/work/source.dxf"),
         Path("/work"),
-        {"units_per_foot": 12, "height_ft": 10.0, "walls": ["WALLS"]},
+        {"scale_from_wall": ["0", "0", "120", "0", "10ft"], "height_ft": 10.0, "walls": ["WALLS"]},
     )
 
     assert command[:3] == ["/venv/bin/python", "-m", "archiagent"]
     assert "--dxfFilePath" in command and "/work/source.dxf" in command
     assert "--outputDir" in command and "/work" in command
-    assert command[command.index("--units-per-foot") + 1] == "12"
+    span = command.index("--scale-from-wall")
+    assert command[span + 1:span + 6] == ["0", "0", "120", "0", "10ft"]
     assert command[command.index("--height") + 1] == "10.0"
     assert command[command.index("--walls") + 1] == "WALLS"
 
 
 def test_command_omits_flags_that_were_not_requested():
     command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {})
-    assert "--units-per-foot" not in command
+    assert "--scale-from-wall" not in command
+    assert "--trust-extracted-scale" not in command
     assert "--walls" not in command
     assert "--height" not in command
 

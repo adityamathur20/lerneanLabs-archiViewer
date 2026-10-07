@@ -73,9 +73,13 @@
       <div id="upload">
         <input id="file" type="file" accept=".dxf,.pdf" />
         <label class="row" style="margin-top:6px">
-          <span style="flex:1">Units per foot</span>
-          <input id="units" type="number" step="any" placeholder="auto" style="width:72px" />
+          <input id="trust-scale" type="checkbox" checked style="width:auto" />
+          <span style="flex:1">Use the dimensions already in this drawing</span>
         </label>
+        <div class="sub">
+          Untick only if the drawing carries no dimensions. The conversion will
+          then say so rather than guess, and you can measure a wall instead.
+        </div>
         <button id="convert" style="margin-top:6px">Convert to IFC</button>
         <div class="sub" id="progress" style="margin-top:6px"></div>
       </div>

@@ -112,7 +112,7 @@ ARCHIAGENT_DXF=/path/plan.dxf .venv/bin/pytest tests/test_end_to_end.py -q -s
 
 Tests needing Postgres or S3 skip with instructions when the stack is down —
 they never pass silently. The end-to-end test really runs archiAgent; with
-`--walls WALLS --units-per-foot 12` it needs no LLM key and takes about a minute.
+`--walls WALLS --trust-extracted-scale` it needs no LLM key and takes about a minute.
 
 ## Not in Phase 3
 

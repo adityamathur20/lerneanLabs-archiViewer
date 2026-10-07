@@ -26,7 +26,11 @@ class UploadRequest(BaseModel):
 
 
 class StartRequest(BaseModel):
-    units_per_foot: float | None = None
+    # Scale is no longer a bare number. The CLI takes either an assertion about
+    # a span the user can point at, or permission to use the drawing's own
+    # dimensions -- both of which carry provenance that a number did not.
+    scale_from_wall: list[str] | None = None
+    trust_extracted_scale: bool = False
     height_ft: float | None = None
     walls: list[str] | None = None
 

@@ -247,10 +247,11 @@ JOB=$(echo "$UP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_
 URL=$(echo "$UP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["upload_url"])')
 
 curl -fsS -X PUT --upload-file plan.dxf -H "content-length: ${SIZE}" "$URL"
-# units_per_foot: 12 if the drawing is in inches despite its header.
+# trust_extracted_scale: use the drawing's own dimensions rather than
+# asserting a wall. Scale is never taken from the file header alone.
 curl -fsS -X POST "https://api.planto3d.in/v1/jobs/${JOB}/start" \
   -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
-  -d '{"units_per_foot": 12}'
+  -d '{"trust_extracted_scale": true}'
 curl -fsS "https://api.planto3d.in/v1/jobs/${JOB}" -H "Authorization: Bearer $KEY"
 ```
 

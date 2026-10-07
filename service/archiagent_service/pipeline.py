@@ -39,8 +39,13 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
         source.suffix.lower(), "--dxfFilePath"
     )
     command = [str(python), "-m", "archiagent", flag, str(source), "--outputDir", str(out_dir)]
-    if (units := options.get("units_per_foot")) is not None:
-        command += ["--units-per-foot", str(units)]
+    # Five values: X1 Y1 X2 Y2 LENGTH, in the drawing's own coordinates.
+    if span := options.get("scale_from_wall"):
+        if len(span) != 5:
+            raise ValueError("scale_from_wall needs five values: X1 Y1 X2 Y2 LENGTH")
+        command += ["--scale-from-wall", *(str(v) for v in span)]
+    if options.get("trust_extracted_scale"):
+        command += ["--trust-extracted-scale"]
     if (height := options.get("height_ft")) is not None:
         command += ["--height", str(height)]
     if walls := options.get("walls"):

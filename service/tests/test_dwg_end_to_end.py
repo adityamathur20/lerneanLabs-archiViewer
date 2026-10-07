@@ -22,7 +22,7 @@ def test_a_dwg_upload_produces_an_ifc(pg_engine, s3):
     session.flush()
     job = Job(
         id=ulid(), tenant_id=tenant.id, status="queued", source_filename="plan.dwg",
-        options={"walls": ["WALLS"], "units_per_foot": 12},
+        options={"walls": ["WALLS"], "trust_extracted_scale": True},
     )
     session.add(job)
     session.commit()

@@ -28,7 +28,7 @@ def test_a_dxf_becomes_an_ifc_in_object_storage(pg_engine, s3):
     issue_key(session, tenant.id)
     job = Job(
         id=ulid(), tenant_id=tenant.id, status="queued", source_filename="plan.dxf",
-        options={"walls": ["WALLS"], "units_per_foot": 12},
+        options={"walls": ["WALLS"], "trust_extracted_scale": True},
     )
     session.add(job)
     session.commit()
