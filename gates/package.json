@@ -1,0 +1,24 @@
+{
+  "name": "archiviewer-phase0-gates",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 gates for the mlightcad CAD viewer: handle join and CSP. Its own package so three@0.172 never meets the IFC viewer's three@0.182.",
+  "type": "module",
+  "scripts": {
+    "handle-join": "node handle-join.mjs",
+    "csp": "node csp-gate.mjs"
+  },
+  "dependencies": {
+    "@mlightcad/cad-simple-viewer": "1.7.4",
+    "@mlightcad/data-model": "1.15.2",
+    "@mlightcad/mtext-parser": "1.5.3",
+    "@mlightcad/mtext-renderer": "0.13.3",
+    "@mlightcad/three-renderer": "1.7.4",
+    "lodash-es": "4.17.21",
+    "three": "0.172.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.43.1",
+    "vite": "^6.4.3"
+  }
+}
