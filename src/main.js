@@ -243,10 +243,11 @@ async function convert() {
   button.disabled = true;
   input.disabled = true;
   try {
-    const units = el("units").value.trim();
     progress.textContent = `uploading ${file.name}…`;
+    // Unticked sends nothing: archiAgent then refuses a DXF whose scale it
+    // cannot establish, and says why, rather than guessing one.
     const jobId = await source.createJob(file, file.name, {
-      units_per_foot: units === "" ? null : Number(units),
+      trust_extracted_scale: el("trustScale").checked ? true : null,
     });
 
     const started = Date.now();

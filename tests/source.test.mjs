@@ -137,7 +137,7 @@ test("creating a job runs upload -> presigned PUT -> start, in that order", asyn
     },
   });
 
-  const jobId = await source.createJob(new Blob(["dxfbytes"]), "plan.dxf", { units_per_foot: 12 });
+  const jobId = await source.createJob(new Blob(["dxfbytes"]), "plan.dxf", { trust_extracted_scale: true });
   assert.equal(jobId, "01JOB");
   assert.deepEqual(seen, [
     "POST https://api.planto3d.in/v1/uploads",
@@ -211,6 +211,6 @@ test("options with no value are not sent at all", async () => {
       return jsonResponse({});
     },
   });
-  await source.createJob(new Blob(["x"]), "plan.dxf", { units_per_foot: null, height_ft: 10 });
+  await source.createJob(new Blob(["x"]), "plan.dxf", { trust_extracted_scale: null, height_ft: 10 });
   assert.deepEqual(startBody, { height_ft: 10 });
 });

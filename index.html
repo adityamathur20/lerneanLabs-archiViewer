@@ -72,9 +72,9 @@
       <h2>Convert</h2>
       <div id="upload">
         <input id="file" type="file" accept=".dxf,.pdf" />
-        <label class="row" style="margin-top:6px">
-          <span style="flex:1">Units per foot</span>
-          <input id="units" type="number" step="any" placeholder="auto" style="width:72px" />
+        <label class="row" style="margin-top:6px" title="archiAgent will not guess a scale. Tick this to use the dimensions written in the drawing.">
+          <input id="trustScale" type="checkbox" />
+          <span style="flex:1">Use the drawing's own dimensions for scale</span>
         </label>
         <button id="convert" style="margin-top:6px">Convert to IFC</button>
         <div class="sub" id="progress" style="margin-top:6px"></div>

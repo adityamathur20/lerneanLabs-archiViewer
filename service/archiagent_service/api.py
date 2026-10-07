@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from archiagent_service.auth import current_tenant, db_session, owned_job
@@ -25,10 +25,43 @@ class UploadRequest(BaseModel):
     size: int
 
 
+class ScaleFromWall(BaseModel):
+    """One `--scale-from-wall X1 Y1 X2 Y2 LENGTH`: two source-coordinate points
+    along one wall, and its true length as archiAgent parses it (10, 10ft,
+    10'-6", 3.05m, 3050mm, 120in)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x1: float = Field(allow_inf_nan=False)
+    y1: float = Field(allow_inf_nan=False)
+    x2: float = Field(allow_inf_nan=False)
+    y2: float = Field(allow_inf_nan=False)
+    # Must start with a digit: the value lands in argv, and one starting with
+    # "-" would be read by argparse as another flag.
+    length: str = Field(min_length=1, max_length=32, pattern=r"^[0-9][0-9 .,'\"a-zA-Z-]*$")
+
+
 class StartRequest(BaseModel):
-    units_per_foot: float | None = None
     height_ft: float | None = None
     walls: list[str] | None = None
+    # archiAgent refuses a DXF whose scale is not established, so a DXF job
+    # needs one of these two (or it fails with the CLI's own explanation).
+    trust_extracted_scale: bool | None = None
+    scale_from_wall: list[ScaleFromWall] | None = Field(default=None, max_length=8)
+    # Removed from archiAgent's CLI; kept here only to refuse it by name rather
+    # than silently dropping a scale the client thinks it set.
+    units_per_foot: float | None = Field(default=None, exclude=True)
+
+    @field_validator("units_per_foot")
+    @classmethod
+    def _units_per_foot_is_gone(cls, value):
+        if value is not None:
+            raise ValueError(
+                "units_per_foot is no longer accepted: archiAgent resolves scale from "
+                "the drawing. Send trust_extracted_scale: true to use the drawing's own "
+                "dimensions, or scale_from_wall: [{x1, y1, x2, y2, length}] to assert one wall"
+            )
+        return value
 
 
 def job_json(job: Job) -> dict:
