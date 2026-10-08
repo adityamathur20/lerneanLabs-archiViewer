@@ -18,7 +18,7 @@ from archiagent_service.pipeline import (
     read_acceptance,
 )
 from archiagent_service.pipeline import run_cli, run_prepare
-from archiagent_service.queue import claim_slot, get_queue
+from archiagent_service.queue import claim_slot, get_queue, on_failure
 from archiagent_service.storage import get_store
 
 #: The CLI derives its output stem from the input filename, so the working copy
@@ -39,6 +39,26 @@ def _finish(job_id: str, **fields) -> None:
             return
         for key, value in fields.items():
             setattr(job, key, value)
+        job.finished_at = datetime.now(timezone.utc)
+
+
+#: A job in one of these has not reached an outcome yet.
+UNFINISHED = ("preparing", "queued", "running")
+
+
+def mark_failed(rq_job, connection, exc_type, exc_value, tb) -> None:
+    """RQ's on_failure. When the work-horse dies, run_job/prepare_job never
+    reach their own handlers, and the job would stay unfinished forever while
+    the UI polls it. Leaves a job that already finished alone."""
+    job_id = rq_job.args[0] if getattr(rq_job, "args", None) else None
+    if not job_id:
+        return
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        if job is None or job.status not in UNFINISHED:
+            return
+        job.status = "failed"
+        job.error = f"the worker process ended before finishing: {exc_value}"
         job.finished_at = datetime.now(timezone.utc)
 
 
@@ -105,6 +125,7 @@ def run_job(job_id: str) -> None:
                 __import__("datetime").timedelta(seconds=REQUEUE_DELAY_S),
                 "archiagent_service.worker.run_job",
                 job_id,
+                on_failure=on_failure(),
             )
             return
         job.status = "running"

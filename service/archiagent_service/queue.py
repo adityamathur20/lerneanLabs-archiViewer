@@ -53,3 +53,11 @@ def claim_slot(session: Session, tenant_id: str, max_concurrent: int) -> bool:
         select(Tenant.id).where(Tenant.id == tenant_id).with_for_update()
     ).one_or_none()
     return running_count(session, tenant_id) < max_concurrent
+
+
+def on_failure():
+    """Attached to every enqueue. RQ runs it in the parent worker, so it fires
+    even when the work-horse process died (an OOM kill, a signal) and the job
+    function's own error handling never ran."""
+    from rq import Callback
+    return Callback("archiagent_service.worker.mark_failed")

@@ -249,3 +249,55 @@ def test_a_prepared_job_runs_from_its_stored_dxf_not_the_dwg(committed, s3, monk
     assert done.converted_from_dwg is True
     assert {"plan.dxf", "plan.scale.json"} <= set(done.artifacts)
     s3.delete_prefix(job.prefix)
+
+
+# --- a dead work-horse --------------------------------------------------------------
+
+def test_a_job_whose_process_died_is_marked_failed_not_left_running(committed, s3):
+    """An OOM kill or a signal ends the work-horse before run_job's own
+    handler can run, which left the job 'preparing' or 'running' forever and
+    the UI polling forever. RQ's on_failure runs in the parent worker."""
+    from archiagent_service import worker
+    session, tenant = committed
+    for status in ("preparing", "running", "queued"):
+        job = _committed_job(session, tenant, status, "plan.dwg")
+
+        class RqJob:
+            args = (job.id,)
+
+        worker.mark_failed(RqJob(), None, RuntimeError, RuntimeError("Work-horse terminated unexpectedly"), None)
+        session.expire_all()
+        done = session.get(Job, job.id)
+        assert done.status == "failed", status
+        assert "worker process ended" in done.error and "Work-horse terminated" in done.error
+        assert done.finished_at is not None
+
+
+def test_a_finished_job_is_not_rewritten_by_a_late_failure_callback(committed, s3):
+    from archiagent_service import worker
+    session, tenant = committed
+    job = _committed_job(session, tenant, "succeeded", "plan.dxf")
+
+    class RqJob:
+        args = (job.id,)
+
+    worker.mark_failed(RqJob(), None, RuntimeError, RuntimeError("late"), None)
+    session.expire_all()
+    assert session.get(Job, job.id).status == "succeeded"
+
+
+def test_every_enqueue_carries_the_failure_callback(client, pg_session, alice, s3, monkeypatch):
+    calls = []
+
+    class Queue:
+        def enqueue(self, name, *args, **kwargs):
+            calls.append(kwargs.get("on_failure"))
+
+    monkeypatch.setattr(api_module, "get_queue", lambda: Queue())
+    tenant, key = alice
+    pending = _job(pg_session, tenant, "pending", s3=s3)
+    client.post(f"/v1/jobs/{pending.id}/prepare", headers=_auth(key))
+    ready = _job(pg_session, tenant, "ready", s3=s3, artifacts=["plan.dxf"])
+    client.post(f"/v1/jobs/{ready.id}/start", json={}, headers=_auth(key))
+    assert len(calls) == 2 and all(c is not None for c in calls)
+    assert all(c.func.endswith("worker.mark_failed") for c in calls)

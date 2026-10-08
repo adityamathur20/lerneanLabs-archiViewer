@@ -3,6 +3,7 @@
 It never does geometry, never imports archiagent, and never proxies artifact
 bytes — a 400 MB IFC goes straight from object storage to the client.
 """
+import re
 from pathlib import PurePosixPath
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from archiagent_service.auth import current_tenant, db_session, owned_job
 from archiagent_service.config import get_settings
 from archiagent_service.models import Job, Tenant, ulid
-from archiagent_service.queue import get_queue, get_redis
+from archiagent_service.queue import get_queue, get_redis, on_failure
 from archiagent_service.ratelimit import RateLimiter, client_bucket
 from archiagent_service.storage import get_store
 from archiagent_service.uploads import validate_upload
@@ -38,7 +39,16 @@ class ScaleFromWall(BaseModel):
     y2: float = Field(allow_inf_nan=False)
     # Must start with a digit: the value lands in argv, and one starting with
     # "-" would be read by argparse as another flag.
-    length: str = Field(min_length=1, max_length=32, pattern=r"^[0-9][0-9 .,'\"a-zA-Z-]*$")
+    length: str = Field(min_length=1, max_length=32, pattern=r"^[0-9][0-9 .,'\"a-zA-Z/½¼¾⅛⅜⅝⅞-]*$")
+
+    @field_validator("length")
+    @classmethod
+    def _has_a_unit(cls, value):
+        # archiAgent refuses a bare number (exit 3, minutes later in the
+        # worker); say so now. A foot mark or a unit is required.
+        if "'" not in value and not re.search(r"(mm|cm|m|ft|in)\s*$", value, re.IGNORECASE):
+            raise ValueError("a length needs a unit or a foot mark: 10'-6\", 12ft, 3.05m, 3050mm, 120in")
+        return value
 
 
 class StartRequest(BaseModel):
@@ -220,7 +230,7 @@ def create_app() -> FastAPI:
         # still uncommitted finds no job and strands it. The cap is enforced
         # worker-side, so submission is never refused (Review Focus #4).
         session.commit()
-        get_queue().enqueue("archiagent_service.worker.run_job", job.id)
+        get_queue().enqueue("archiagent_service.worker.run_job", job.id, on_failure=on_failure())
         return {"status": job.status}
 
     @app.post("/v1/jobs/{job_id}/prepare")
@@ -239,7 +249,7 @@ def create_app() -> FastAPI:
         _require_uploaded_source(job)
         job.status = "preparing"
         session.commit()
-        get_queue().enqueue("archiagent_service.worker.prepare_job", job.id)
+        get_queue().enqueue("archiagent_service.worker.prepare_job", job.id, on_failure=on_failure())
         return {"status": job.status}
 
     @app.post("/v1/jobs/{job_id}/retry")
@@ -270,7 +280,7 @@ def create_app() -> FastAPI:
                 new.artifacts.append(name)
         session.add(new)
         session.commit()
-        get_queue().enqueue("archiagent_service.worker.run_job", new.id)
+        get_queue().enqueue("archiagent_service.worker.run_job", new.id, on_failure=on_failure())
         return {"job_id": new.id, "status": new.status}
 
     @app.get("/v1/jobs/{job_id}")
