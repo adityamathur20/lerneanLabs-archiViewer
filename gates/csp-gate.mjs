@@ -144,7 +144,10 @@ const drawn = await page.evaluate(async (b64) => {
   c.width = img.width; c.height = img.height;
   const g = c.getContext("2d");
   g.drawImage(img, 0, 0);
-  const d = g.getImageData(0, 0, c.width, c.height).data;
+  // Only the drawing area: the toolbar (top right), command line (bottom) and
+  // axis icon (bottom left) are UI chrome and draw even when the plan does not.
+  const d = g.getImageData(Math.round(c.width * 0.2), Math.round(c.height * 0.1),
+    Math.round(c.width * 0.6), Math.round(c.height * 0.75)).data;
   let n = 0;
   for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) n += 1;
   return n;
@@ -165,7 +168,8 @@ const checks = {
   "no third-party requests": thirdParty.length === 0,
   "font index loaded": fontIndex === 200,
   "font file loaded": fontFile === 200,
-  "canvas drew something": drawn > 500,
+  "drawing area shows the plan": drawn > 2000,
+  "renderer went idle": gate.idle === true,
 };
 const report = { checks, entities: gate.entities, errors: gate.errors, csp: gate.csp, thirdParty,
   drawnPixels: drawn, bundle: { files: assets.length, rawBytes: raw, gzipBytes: gzip },

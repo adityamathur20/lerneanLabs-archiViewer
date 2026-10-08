@@ -18,6 +18,11 @@ try {
   gate.phase = "opening";
   const bytes = await (await fetch("./sample.dxf")).arrayBuffer();
   gate.opened = await manager.openDocument("sample.dxf", bytes, { readOnly: true });
+  // A real plan renders progressively and can sit far from the origin: wait
+  // for the scene to finish, then frame it, or the screenshot is empty.
+  gate.idle = await manager.curView.waitUntilIdle(90_000);
+  manager.curView.zoomToFitDrawing();
+  await manager.curView.waitUntilIdle(30_000);
   let entities = 0;
   for (const _ of manager.curDocument.database.tables.blockTable.modelSpace.newIterator()) entities += 1;
   gate.entities = entities;
