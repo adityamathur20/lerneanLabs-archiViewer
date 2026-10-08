@@ -36,6 +36,32 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
   // forwarded bearer would collide with the query-string signature.
   const init = () => ({ headers: token ? { authorization: `Bearer ${token}` } : {} });
 
+  /**
+   * Declares, PUTs and verifies one upload; returns the job id. The presigned
+   * PUT is signed against this exact byte count, so it must be the real one —
+   * a mismatch is refused by the store, and the service refuses again by
+   * comparing the stored object to the declaration.
+   */
+  async function upload(blob, filename) {
+    const size = blob.size;
+    const created = await fetchImpl(`${trimmed}/v1/uploads`, {
+      method: "POST",
+      headers: { ...init().headers, "content-type": "application/json" },
+      body: JSON.stringify({ filename, size }),
+    });
+    if (!created.ok) throw new SourceError(await detail(created), created.status);
+    const { job_id: jobId, upload_url: uploadUrl } = await created.json();
+
+    // Deliberately NO authorization header: the credential for this request
+    // is the signature in the URL, and a bearer token would collide with it.
+    const stored = await fetchImpl(uploadUrl, { method: "PUT", body: blob });
+    if (!stored.ok) {
+      throw new SourceError(`uploading to the object store failed (${stored.status})`, stored.status);
+    }
+
+    return jobId;
+  }
+
   return {
     kind: "api",
     describe: () => trimmed,
@@ -70,7 +96,8 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
         .map((job) => ({
           id: job.job_id,
           name: job.source?.filename ?? job.job_id,
-          label: `${job.source?.filename ?? job.job_id} — ${job.status}`,
+          label: `${job.source?.filename ?? job.job_id} — ${job.status === "ready" ? "waiting for scale" : job.status}`,
+          status: job.status,
           hasModel: (job.artifacts ?? []).includes("plan.ifc"),
         }));
     },
@@ -95,26 +122,25 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
      * Returns the job id so the caller can poll it.
      */
     async createJob(blob, filename, options = {}) {
-      // The presigned PUT is signed against this exact byte count, so it must
-      // be the real one — a mismatch is refused by the store, and `start`
-      // refuses again by comparing the stored object to the declaration.
-      const size = blob.size;
+      const jobId = await upload(blob, filename);
+      await this.startJob(jobId, options);
+      return jobId;
+    },
 
-      const created = await fetchImpl(`${trimmed}/v1/uploads`, {
-        method: "POST",
-        headers: { ...init().headers, "content-type": "application/json" },
-        body: JSON.stringify({ filename, size }),
-      });
-      if (!created.ok) throw new SourceError(await detail(created), created.status);
-      const { job_id: jobId, upload_url: uploadUrl } = await created.json();
+    /**
+     * Uploads a DXF or DWG and asks the worker to prepare it: ODA converts a
+     * DWG, and the drawing's scale evidence is read. The job then waits in
+     * `ready` for the user to choose a scale in the Drawing view.
+     */
+    async prepareJob(blob, filename) {
+      const jobId = await upload(blob, filename);
+      const prepared = await fetchImpl(`${trimmed}/v1/jobs/${jobId}/prepare`, { method: "POST", ...init() });
+      if (!prepared.ok) throw new SourceError(await detail(prepared), prepared.status);
+      return jobId;
+    },
 
-      // Deliberately NO authorization header: the credential for this request
-      // is the signature in the URL, and a bearer token would collide with it.
-      const stored = await fetchImpl(uploadUrl, { method: "PUT", body: blob });
-      if (!stored.ok) {
-        throw new SourceError(`uploading to the object store failed (${stored.status})`, stored.status);
-      }
-
+    /** Starts a pending or ready job with archiAgent options (scale etc.). */
+    async startJob(jobId, options = {}) {
       // Every field of StartRequest is optional, but the body itself is not,
       // and a null would fail validation — so empty values are omitted.
       const body = Object.fromEntries(
@@ -128,6 +154,26 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
       if (!started.ok) throw new SourceError(await detail(started), started.status);
       return jobId;
     },
+
+    /** A new job from a finished one's stored drawing, with new options. */
+    async retryJob(jobId, options = {}) {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${jobId}/retry`, {
+        method: "POST",
+        headers: { ...init().headers, "content-type": "application/json" },
+        body: JSON.stringify(options),
+      });
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return (await response.json()).job_id;
+    },
+
+    /** plan.scale.json: the header's units and what the drawing's dimensions imply. */
+    async fetchScaleEvidence(id) {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}/artifacts/plan.scale.json`, init());
+      if (response.status === 404) return null;
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return response.json();
+    },
+
 
     /** One status poll, for the caller's own loop. */
     async jobStatus(id) {
@@ -172,6 +218,11 @@ export function createDiskSource({ fetchImpl = globalThis.fetch } = {}) {
       if (!response.ok) throw new SourceError(await detail(response), response.status);
       const { drawings = [] } = await response.json();
       return drawings.map((d) => ({ id: d.path, name: d.name, label: `${d.name} — ${d.path}`, hasModel: d.hasModel }));
+    },
+
+    // The dev server has no jobs: the scale tool there prints the CLI flags.
+    async fetchScaleEvidence() {
+      return null;
     },
 
     async fetchDxf(id) {

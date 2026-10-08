@@ -16,6 +16,7 @@ import {
   collectMeasurementRecords,
 } from "@mlightcad/cad-simple-viewer";
 import { createApiSource, createDiskSource, SourceError } from "../../src/source.js";
+import { createScaleTool } from "./set-scale.js";
 
 // Same key and same API as the 3D view: one sign-in for both.
 const API_BASE = import.meta.env?.VITE_API_BASE ?? "";
@@ -99,7 +100,7 @@ function whenProgressHidden(timeoutMs) {
   });
 }
 
-const TOOLS = ["fit", "measure", "clearMeasures", "allOn", "allOff"];
+const TOOLS = ["fit", "measure", "clearMeasures", "allOn", "allOff", "pickWall"];
 function setToolsEnabled(enabled) {
   for (const id of TOOLS) el(id).disabled = !enabled;
 }
@@ -166,9 +167,45 @@ el("clearMeasures").addEventListener("click", () => {
   el("hint").textContent = "";
 });
 
-// --- loading ------------------------------------------------------------------
+// --- scale ----------------------------------------------------------------------
 
 let drawings = [];
+let current = null;
+
+/** A job that is ready waits for this; a finished one is retried with it. */
+function convertible(drawing) {
+  return source.kind === "api" && ["ready", "succeeded", "failed"].includes(drawing?.status);
+}
+
+const scale = createScaleTool({
+  manager,
+  el,
+  canSubmit: () => source.kind !== "api" || convertible(current),
+  async submit(options) {
+    if (source.kind !== "api") {
+      // The dev server has no jobs; give the flags the CLI takes.
+      const w = options.scale_from_wall?.[0];
+      el("scaleReadout").textContent = w
+        ? `CLI: --scale-from-wall ${w.x1} ${w.y1} ${w.x2} ${w.y2} "${w.length}"`
+        : "CLI: --trust-extracted-scale";
+      state.cli = el("scaleReadout").textContent;
+      return;
+    }
+    el("useWall").disabled = el("useDims").disabled = true;
+    try {
+      const id = current.status === "ready"
+        ? await source.startJob(current.id, options)
+        : await source.retryJob(current.id, options);
+      location.href = `/?wait=${encodeURIComponent(id)}`;
+    } catch (error) {
+      el("scaleReadout").textContent = `Could not start the conversion: ${error.message}`;
+      scale.render();
+    }
+  },
+});
+state.scale = scale;
+
+// --- loading ------------------------------------------------------------------
 
 function updateModelLink(id) {
   const drawing = drawings.find((d) => d.id === id);
@@ -185,6 +222,7 @@ function updateModelLink(id) {
 }
 
 async function show(id, name) {
+  current = drawings.find((d) => d.id === id) ?? null;
   state.phase = "opening";
   say(`loading ${name}…`);
   el("notes").textContent = "";
@@ -223,15 +261,43 @@ async function show(id, name) {
   mark("overlay gone");
   manager.curView.zoomToFitDrawing();
   renderLayers();
+  scale.showEvidence(await source.fetchScaleEvidence(id).catch(() => null));
   setToolsEnabled(true);
   say("");
   state.phase = "opened";
   state.name = name;
 }
 
+/**
+ * Arriving straight from an upload, the job is still being prepared (ODA
+ * converting a DWG, the scale evidence being read): wait for it.
+ */
+async function waitUntilPrepared(id) {
+  // Preparing is ODA plus one read: 6-51 s on the corpus. Ten minutes means
+  // something is wrong, and saying so beats a spinner that never stops.
+  const giveUp = Date.now() + 10 * 60_000;
+  for (;;) {
+    if (Date.now() > giveUp) throw new Error("still not prepared after 10 minutes; try uploading again");
+    const job = await source.jobStatus(id);
+    if (job.status === "failed") throw new Error(String(job.error ?? "preparation failed").split("\n")[0]);
+    if (job.artifacts.includes("plan.dxf")) return;
+    say(job.status === "preparing" ? "preparing the drawing (converting a DWG takes up to a minute)…" : `${job.status}…`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
 async function loadList() {
   const select = el("drawings");
   try {
+    const wantedId = params.get("id");
+    if (source.kind === "api" && wantedId) {
+      try {
+        await waitUntilPrepared(wantedId);
+      } catch (error) {
+        fail(`This drawing could not be prepared: ${error.message}`);
+        return;
+      }
+    }
     drawings = await source.listDrawings();
     el("root").textContent = `reading ${source.describe()}`;
     if (!drawings.length) {

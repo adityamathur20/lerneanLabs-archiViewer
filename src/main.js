@@ -238,12 +238,51 @@ async function loadList() {
 }
 
 /**
- * Uploads the chosen drawing and polls until it is done, then reloads the
- * list so the new model can be selected.
+ * Follows one conversion until it finishes, then shows its model.
  *
  * Polling rather than streaming: a conversion takes minutes (one 79-layer
  * drawing measured at 31), so there is nothing to stream and a dropped
- * connection must not lose the job.
+ * connection must not lose the job. The Drawing view hands over here with
+ * /?wait=<job> once the user has chosen a scale.
+ */
+async function watch(jobId) {
+  const progress = el("progress");
+  const started = Date.now();
+  for (;;) {
+    const job = await source.jobStatus(jobId);
+    const mins = Math.floor((Date.now() - started) / 60000);
+    if (job.status === "succeeded") {
+      progress.textContent = `done in ${mins}m — ${job.acceptance ?? "converted"}`;
+      history.replaceState(null, "", `/?id=${encodeURIComponent(jobId)}`);
+      await loadList();
+      return;
+    }
+    if (job.status === "failed") {
+      // The pipeline's own message, not a generic failure: a refusal like
+      // "wall 18 partially overlaps accepted wall profiles" is actionable,
+      // and "conversion failed" is not.
+      const reason = String(job.error ?? "").split("\n")[0].slice(0, 200);
+      progress.replaceChildren(`failed: ${reason}`);
+      if (job.artifacts.includes("plan.dxf")) {
+        // Its drawing is stored: a different scale is one click away.
+        const link = Object.assign(document.createElement("a"), {
+          href: `/cad/?id=${encodeURIComponent(jobId)}`, className: "button",
+          textContent: "Open the drawing to set the scale and retry",
+        });
+        progress.append(link);
+      }
+      return;
+    }
+    progress.textContent = `${job.status}… ${mins}m elapsed (a large drawing can take 30+)`;
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+}
+
+/**
+ * Uploads the chosen drawing. A DXF or DWG is prepared (ODA converts a DWG,
+ * the drawing's scale evidence is read) and the user goes to the Drawing view
+ * to choose the scale there, beside that evidence. A PDF has no drawing scale
+ * to choose, so it starts at once.
  */
 async function convert() {
   const input = el("file");
@@ -263,32 +302,12 @@ async function convert() {
   input.disabled = true;
   try {
     progress.textContent = `uploading ${file.name}…`;
-    // Scale is no longer a number the user is expected to know. Either the
-    // drawing's own dimensions are trusted, or the pipeline refuses and says
-    // what it found -- which the failure branch below surfaces verbatim.
-    const jobId = await source.createJob(file, file.name, {
-      trust_extracted_scale: el("trust-scale").checked,
-    });
-
-    const started = Date.now();
-    for (;;) {
-      const job = await source.jobStatus(jobId);
-      const mins = Math.floor((Date.now() - started) / 60000);
-      if (job.status === "succeeded") {
-        progress.textContent = `done in ${mins}m — ${job.acceptance ?? "converted"}`;
-        await loadList();
-        return;
-      }
-      if (job.status === "failed") {
-        // The pipeline's own message, not a generic failure: a refusal like
-        // "wall 18 partially overlaps accepted wall profiles" is actionable,
-        // and "conversion failed" is not.
-        progress.textContent = `failed: ${String(job.error ?? "").split("\n")[0].slice(0, 200)}`;
-        return;
-      }
-      progress.textContent = `${job.status}… ${mins}m elapsed (a large drawing can take 30+)`;
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (/\.(dxf|dwg)$/i.test(file.name)) {
+      const jobId = await source.prepareJob(file, file.name);
+      location.href = `/cad/?id=${encodeURIComponent(jobId)}`;
+      return;
     }
+    await watch(await source.createJob(file, file.name, {}));
   } catch (error) {
     if (error instanceof SourceError && error.status === 401) {
       el("auth").style.display = "";
@@ -303,6 +322,9 @@ async function convert() {
 }
 
 el("convert")?.addEventListener("click", convert);
+
+const waiting = new URLSearchParams(location.search).get("wait");
+if (waiting && source.kind === "api") watch(waiting).catch((error) => (el("progress").textContent = `failed: ${error.message}`));
 
 el("saveKey")?.addEventListener("click", () => {
   try {

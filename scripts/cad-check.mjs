@@ -177,6 +177,45 @@ for (const [i, d] of listed.entries()) {
   check("a distance measurement completes", Boolean(distance), distance ? JSON.stringify(distance.geometry).slice(0, 120) : `${records.length} records`);
   await page.screenshot({ path: path.join(out, `${i}-measured.png`) });
   await page.click("#clearMeasures");
+
+  // Set scale: pick the longest visible LINE at its midpoint; the asserted
+  // span must be that entity's own endpoints, not the click.
+  const target = await page.evaluate(() => {
+    const m = window.__cad.manager, view = m.curView;
+    const box = document.getElementById("cad").getBoundingClientRect();
+    let best = null;
+    for (const e of m.curDocument.database.tables.blockTable.modelSpace.newIterator()) {
+      if (e.dxfTypeName !== "LINE") continue;
+      const a = e.startPoint, b = e.endPoint;
+      const mid = view.worldToScreen({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (mid.x < 20 || mid.y < 20 || mid.x > box.width - 20 || mid.y > box.height - 60) continue;
+      if (!best || len > best.len) best = { id: e.objectId, len, a: [a.x, a.y], b: [b.x, b.y], mid, left: box.left, top: box.top };
+    }
+    return best;
+  });
+  if (!target) {
+    check("set scale: a wall line to pick", false, "no visible LINE");
+    continue;
+  }
+  await page.click("#pickWall");
+  await page.mouse.click(target.left + target.mid.x + 0.7, target.top + target.mid.y - 0.4);
+  await settle(500);
+  const picked = await page.evaluate(() => window.__cad.scale.picked);
+  check("set scale: a click picks the wall line under it", picked?.id !== undefined, picked ? `${picked.id}` : "nothing picked");
+  if (!picked) continue;
+  await page.type("#wallLength", "12ft");
+  await page.click("#useWall");
+  await settle(300);
+  const cli = await page.evaluate(() => window.__cad.cli ?? "");
+  const nums = cli.match(/--scale-from-wall (\S+) (\S+) (\S+) (\S+) "12ft"/)?.slice(1).map(Number);
+  const pickedEnds = [picked.start.x, picked.start.y, picked.end.x, picked.end.y];
+  check("set scale: the asserted span is the entity's own vertices", Boolean(nums) && nums.every((v, k) => v === pickedEnds[k]),
+    cli.slice(0, 90));
+  if (picked.id === target.id) {
+    check("set scale: ...and they are that LINE's endpoints", nums?.join() === [...target.a, ...target.b].join());
+  }
+  await page.screenshot({ path: path.join(out, `${i}-scale.png`) });
 }
 
 const csp_ = await page.evaluate(() => window.__csp);
