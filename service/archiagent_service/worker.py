@@ -62,6 +62,12 @@ def mark_failed(rq_job, connection, exc_type, exc_value, tb) -> None:
         job.finished_at = datetime.now(timezone.utc)
 
 
+def mark_horse_killed(rq_job, retpid, ret_val, rusage) -> None:
+    """Worker's work_horse_killed_handler (queue.Worker)."""
+    mark_failed(rq_job, None, RuntimeError,
+                RuntimeError(f"work-horse {retpid} was killed (status {ret_val})"), None)
+
+
 def prepare_job(job_id: str) -> None:
     """Convert a DWG (ODA) and read the drawing's scale evidence; leave the job
     `ready` for the user to choose a scale. Stores plan.dxf -- the drawing the

@@ -254,9 +254,8 @@ def test_a_prepared_job_runs_from_its_stored_dxf_not_the_dwg(committed, s3, monk
 # --- a dead work-horse --------------------------------------------------------------
 
 def test_a_job_whose_process_died_is_marked_failed_not_left_running(committed, s3):
-    """An OOM kill or a signal ends the work-horse before run_job's own
-    handler can run, which left the job 'preparing' or 'running' forever and
-    the UI polling forever. RQ's on_failure runs in the parent worker."""
+    """mark_failed, the shared handler: fails any unfinished job. Which RQ hook
+    calls it, and when, is proved by the real-kill test below."""
     from archiagent_service import worker
     session, tenant = committed
     for status in ("preparing", "running", "queued"):
@@ -301,3 +300,34 @@ def test_every_enqueue_carries_the_failure_callback(client, pg_session, alice, s
     client.post(f"/v1/jobs/{ready.id}/start", json={}, headers=_auth(key))
     assert len(calls) == 2 and all(c is not None for c in calls)
     assert all(c.func.endswith("worker.mark_failed") for c in calls)
+
+
+def test_a_real_killed_work_horse_fails_its_job(committed, s3):
+    """End to end: a real RQ worker (our class), a job that SIGKILLs its own
+    work-horse. Calling mark_failed directly, as above, did not prove this --
+    RQ runs no failure callback for a killed horse."""
+    import os
+    import subprocess
+    import sys
+    from rq import Queue
+
+    from archiagent_service.queue import get_redis, on_failure
+    session, tenant = committed
+    job = _committed_job(session, tenant, "running", "plan.dxf")
+    queue = Queue("archiagent-kill-test", connection=get_redis())
+    queue.enqueue("tests._die.die", job.id, on_failure=on_failure())
+    service = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [str(Path(sys.executable).parent / "rq"), "worker", "archiagent-kill-test", "--burst",
+         "--url", get_redis().connection_pool.connection_kwargs and
+         "redis://{host}:{port}/{db}".format(**get_redis().connection_pool.connection_kwargs),
+         "--worker-class", "archiagent_service.queue.Worker"],
+        cwd=service, capture_output=True, text=True, timeout=120,
+        # macOS only: a forked child aborts on an Objective-C check otherwise.
+        env={**os.environ, "OBJC_DISABLE_INITIALIZE_FORK_SAFETY": "YES"},
+    )
+    assert "killed" in (done.stdout + done.stderr).lower(), done.stderr[-1500:]
+    session.expire_all()
+    failed = session.get(Job, job.id)
+    assert failed.status == "failed", done.stderr[-1500:]
+    assert "was killed" in failed.error

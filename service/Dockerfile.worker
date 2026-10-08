@@ -91,4 +91,6 @@ ENV ARCHIAGENT_SERVICE_ARCHIAGENT_PYTHON=/opt/agent/bin/python \
     XDG_CACHE_HOME=/var/cache/archiagent \
     MPLCONFIGDIR=/var/cache/archiagent/matplotlib
 
-CMD ["rq", "worker", "archiagent"]
+# The worker class marks a job failed when its work-horse is killed (OOM, a
+# signal); plain rq would leave it 'running' forever. archiagent_service/queue.py.
+CMD ["rq", "worker", "archiagent", "--worker-class", "archiagent_service.queue.Worker"]
