@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     # timeout below must stay larger, or RQ kills the job first and the
     # traceback explaining why is never recorded.
     cli_timeout_s: int = 5400
+    # --prepare is ODA plus one DXF read: measured 6-51 s on the corpus.
+    prepare_timeout_s: int = 600
     queue_timeout_s: int = 7200
 
     # Whether DWG uploads are accepted. Unset, the API asks Tier 1 whether a

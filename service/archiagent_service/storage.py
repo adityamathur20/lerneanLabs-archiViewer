@@ -49,6 +49,11 @@ class ObjectStore:
     def put_file(self, key: str, path: Path) -> None:
         self._client.upload_file(str(path), self.bucket, key)
 
+    def copy(self, source_key: str, target_key: str) -> None:
+        """Server-side copy: the bytes never pass through this process."""
+        self._client.copy_object(Bucket=self.bucket, Key=target_key,
+                                 CopySource={"Bucket": self.bucket, "Key": source_key})
+
     def get(self, key: str) -> bytes:
         return self._client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
 
