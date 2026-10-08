@@ -17,8 +17,8 @@ from archiagent_service.pipeline import (
     collect_artifacts,
     read_acceptance,
 )
-from archiagent_service.pipeline import run_cli
-from archiagent_service.queue import claim_slot, get_queue
+from archiagent_service.pipeline import run_cli, run_prepare
+from archiagent_service.queue import claim_slot, get_queue, on_failure
 from archiagent_service.storage import get_store
 
 #: The CLI derives its output stem from the input filename, so the working copy
@@ -42,6 +42,78 @@ def _finish(job_id: str, **fields) -> None:
         job.finished_at = datetime.now(timezone.utc)
 
 
+#: A job in one of these has not reached an outcome yet.
+UNFINISHED = ("preparing", "queued", "running")
+
+
+def mark_failed(rq_job, connection, exc_type, exc_value, tb) -> None:
+    """RQ's on_failure. When the work-horse dies, run_job/prepare_job never
+    reach their own handlers, and the job would stay unfinished forever while
+    the UI polls it. Leaves a job that already finished alone."""
+    job_id = rq_job.args[0] if getattr(rq_job, "args", None) else None
+    if not job_id:
+        return
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        if job is None or job.status not in UNFINISHED:
+            return
+        job.status = "failed"
+        job.error = f"the worker process ended before finishing: {exc_value}"
+        job.finished_at = datetime.now(timezone.utc)
+
+
+def mark_horse_killed(rq_job, retpid, ret_val, rusage) -> None:
+    """Worker's work_horse_killed_handler (queue.Worker)."""
+    mark_failed(rq_job, None, RuntimeError,
+                RuntimeError(f"work-horse {retpid} was killed (status {ret_val})"), None)
+
+
+def prepare_job(job_id: str) -> None:
+    """Convert a DWG (ODA) and read the drawing's scale evidence; leave the job
+    `ready` for the user to choose a scale. Stores plan.dxf -- the drawing the
+    Drawing view opens -- and plan.scale.json. No model is called."""
+    store = get_store()
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        prefix, filename = job.prefix, job.source_filename
+    suffix = PurePosixPath(filename).suffix.lower()
+    try:
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            source = work / f"{WORKING_STEM}{suffix}"
+            store.download(f"{prefix}source{suffix}", source)
+            result = run_prepare(source, work)
+            artifacts = []
+            if result.exit_code == 0:
+                for name in (f"{WORKING_STEM}.dxf", f"{WORKING_STEM}.scale.json"):
+                    path = work / name
+                    if path.is_file():
+                        store.put_file(f"{prefix}{name}", path)
+                        artifacts.append(name)
+    except Exception as error:
+        _finish(job_id, status="failed",
+                error=f"{type(error).__name__}: {error}\n{traceback.format_exc()[-2000:]}",
+                converted_from_dwg=suffix == ".dwg")
+        raise
+
+    ok = result.exit_code == 0 and len(artifacts) == 2
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        job.status = "ready" if ok else "failed"
+        job.artifacts = artifacts
+        job.converted_from_dwg = suffix == ".dwg"
+        job.timings_ms = {**(job.timings_ms or {}), "prepare": result.duration_ms}
+        if not ok:
+            job.exit_code = result.exit_code
+            job.error = (f"{EXIT_MEANING.get(result.exit_code, 'unknown')}: {result.stderr[-4000:]}"
+                         if result.exit_code else "prepare produced no drawing")
+            job.finished_at = datetime.now(timezone.utc)
+
+
 def run_job(job_id: str) -> None:
     settings = get_settings()
     store = get_store()
@@ -59,22 +131,30 @@ def run_job(job_id: str) -> None:
                 __import__("datetime").timedelta(seconds=REQUEUE_DELAY_S),
                 "archiagent_service.worker.run_job",
                 job_id,
+                on_failure=on_failure(),
             )
             return
         job.status = "running"
         job.started_at = datetime.now(timezone.utc)
         prefix, filename, options = job.prefix, job.source_filename, dict(job.options)
+        prepared = [name for name in job.artifacts or () if name in ("plan.dxf", "plan.scale.json")]
 
     suffix = PurePosixPath(filename).suffix.lower()
     try:
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
-            source = work / f"{WORKING_STEM}{suffix}"
-            store.download(f"{prefix}source{suffix}", source)
+            if "plan.dxf" in prepared:
+                # Prepared: run on the stored DXF -- the drawing the user saw
+                # and measured on. A DWG is converted once, at prepare.
+                source = work / f"{WORKING_STEM}.dxf"
+                store.download(f"{prefix}{source.name}", source)
+            else:
+                source = work / f"{WORKING_STEM}{suffix}"
+                store.download(f"{prefix}source{suffix}", source)
 
             result = run_cli(source, work, options)
             acceptance = read_acceptance(work)
-            artifacts = []
+            artifacts = [name for name in prepared if name != "plan.dxf"]
             # `plan.dxf` is the drawing the viewer opens, whichever format was
             # uploaded. For a DWG it is ODA's conversion, which is also the only
             # way to reproduce or debug a DWG-derived result: ODA's output is

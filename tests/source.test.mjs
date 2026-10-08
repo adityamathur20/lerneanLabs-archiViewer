@@ -267,3 +267,51 @@ test("disk source serves drawings through the dev server's confined routes", asy
   await source.fetchDxf(drawing.id);
   assert.equal(urls[1], "/api/drawing?path=a%2Fplan.dxf");
 });
+
+// --- the scale gate ----------------------------------------------------------------
+
+test("a drawing is uploaded and prepared, not started", async () => {
+  const seen = [];
+  const source = createApiSource({
+    base: "https://api.planto3d.in", token: "k",
+    fetchImpl: async (url, init = {}) => {
+      seen.push(`${init.method ?? "GET"} ${url}`);
+      if (url.endsWith("/v1/uploads")) return jsonResponse({ job_id: "J", upload_url: "https://s3.planto3d.in/signed" });
+      return jsonResponse({ status: "preparing" });
+    },
+  });
+  assert.equal(await source.prepareJob(new Blob(["dwg"]), "plan.dwg"), "J");
+  assert.deepEqual(seen, [
+    "POST https://api.planto3d.in/v1/uploads",
+    "PUT https://s3.planto3d.in/signed",
+    "POST https://api.planto3d.in/v1/jobs/J/prepare",
+  ]);
+});
+
+test("a chosen scale starts a ready job, or retries a finished one", async () => {
+  const seen = [];
+  const source = createApiSource({
+    base: "https://api.planto3d.in", token: "k",
+    fetchImpl: async (url, init = {}) => {
+      seen.push([url, JSON.parse(init.body)]);
+      return jsonResponse(url.endsWith("/retry") ? { job_id: "NEW", status: "queued" } : { status: "queued" });
+    },
+  });
+  const wall = { scale_from_wall: [{ x1: 0, y1: 0, x2: 144, y2: 0, length: "12ft" }] };
+  await source.startJob("READY", wall);
+  assert.equal(await source.retryJob("FAILED", { trust_extracted_scale: true }), "NEW");
+  assert.deepEqual(seen, [
+    ["https://api.planto3d.in/v1/jobs/READY/start", wall],
+    ["https://api.planto3d.in/v1/jobs/FAILED/retry", { trust_extracted_scale: true }],
+  ]);
+});
+
+test("scale evidence is plan.scale.json, and its absence is not an error", async () => {
+  const evidence = { schema_version: 1, extracted: null };
+  const source = createApiSource({
+    base: "https://api.planto3d.in", token: "k",
+    fetchImpl: async (url) => (url.includes("/HAS/") ? jsonResponse(evidence) : jsonResponse({ detail: "no" }, 404)),
+  });
+  assert.deepEqual(await source.fetchScaleEvidence("HAS"), evidence);
+  assert.equal(await source.fetchScaleEvidence("NONE"), null);
+});

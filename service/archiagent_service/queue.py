@@ -3,6 +3,7 @@ from functools import lru_cache
 
 from redis import Redis
 from rq import Queue
+from rq import Worker as _RqWorker
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -53,3 +54,26 @@ def claim_slot(session: Session, tenant_id: str, max_concurrent: int) -> bool:
         select(Tenant.id).where(Tenant.id == tenant_id).with_for_update()
     ).one_or_none()
     return running_count(session, tenant_id) < max_concurrent
+
+
+def on_failure():
+    """Attached to every enqueue: RQ runs it when the job raises, and when a
+    job is found abandoned past its timeout. It does NOT run when the
+    work-horse is killed -- that is Worker's handler below."""
+    from rq import Callback
+    return Callback("archiagent_service.worker.mark_failed")
+
+
+class Worker(_RqWorker):
+    """`rq worker --worker-class archiagent_service.queue.Worker`.
+
+    When the work-horse process dies (an OOM kill, a signal), the job function
+    never reaches its own error handling and RQ runs no failure callback, only
+    this handler. Without it the job stayed 'preparing' or 'running' forever
+    and the UI polled it forever (found 2026-10-08 by killing one).
+    """
+
+    def __init__(self, *args, **kwargs):
+        from archiagent_service.worker import mark_horse_killed
+        kwargs.setdefault("work_horse_killed_handler", mark_horse_killed)
+        super().__init__(*args, **kwargs)

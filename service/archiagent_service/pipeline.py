@@ -52,11 +52,26 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
     return command
 
 
+def build_prepare_command(python: Path, source: Path, out_dir: Path) -> list[str]:
+    """`--prepare`: convert a DWG, write plan.scale.json, stop. No model calls."""
+    flag = "--dwgFilePath" if source.suffix.lower() == ".dwg" else "--dxfFilePath"
+    return [str(python), "-m", "archiagent", flag, str(source), "--outputDir", str(out_dir), "--prepare"]
+
+
+def run_prepare(source: Path, out_dir: Path, timeout_s: int | None = None) -> CliResult:
+    settings = get_settings()
+    return _run(build_prepare_command(settings.archiagent_python, source, out_dir),
+                settings.prepare_timeout_s if timeout_s is None else timeout_s)
+
+
 def run_cli(source: Path, out_dir: Path, options: dict, timeout_s: int | None = None) -> CliResult:
     settings = get_settings()
     command = build_command(settings.archiagent_python, source, out_dir, options)
-    if timeout_s is None:
-        timeout_s = settings.cli_timeout_s
+    return _run(command, settings.cli_timeout_s if timeout_s is None else timeout_s)
+
+
+def _run(command: list[str], timeout_s: int) -> CliResult:
+    settings = get_settings()
     started = time.monotonic()
     try:
         completed = subprocess.run(

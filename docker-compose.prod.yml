@@ -161,7 +161,8 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       garage: {condition: service_healthy}
-    command: ["rq", "worker", "archiagent", "--url", "redis://redis:6379/0"]
+    command: ["rq", "worker", "archiagent", "--url", "redis://redis:6379/0",
+              "--worker-class", "archiagent_service.queue.Worker"]
 
 volumes:
   caddy_data: {}

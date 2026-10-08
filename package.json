@@ -7,7 +7,7 @@
     "build": "vite build && npm --prefix cad run build",
     "postinstall": "npm --prefix cad ci",
     "preview": "vite preview",
-    "test": "node --test 'tests/*.test.mjs'",
+    "test": "node --test tests/*.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "shot": "node scripts/shot.mjs",
     "build:frag": "node scripts/build-frag.mjs",

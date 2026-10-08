@@ -29,13 +29,13 @@ def test_scale_options_are_stored_as_the_worker_reads_them():
     }
 
 
-@pytest.mark.parametrize("length", ["--rules", "-10", "", "ten feet", "1" * 33])
+@pytest.mark.parametrize("length", ["--rules", "-10", "", "ten feet", "1" * 33, "10", "12.5"])
 def test_a_wall_length_that_could_become_a_flag_or_junk_is_refused(length):
     with pytest.raises(ValidationError):
         StartRequest(scale_from_wall=[{"x1": 0, "y1": 0, "x2": 1, "y2": 0, "length": length}])
 
 
-@pytest.mark.parametrize("length", ["10", "10ft", "10'-6\"", "3.05m", "3050mm", "120in", "10' 6\""])
+@pytest.mark.parametrize("length", ["10ft", "10'-6\"", "3.05m", "3050mm", "120in", "10' 6\"", "10'-6½\"", "10'-6 1/2\""])
 def test_every_length_format_archiagent_documents_is_accepted(length):
     StartRequest(scale_from_wall=[{"x1": 0, "y1": 0, "x2": 1, "y2": 0, "length": length}])
 
