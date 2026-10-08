@@ -11,22 +11,21 @@ def test_command_shells_out_and_never_imports_archiagent():
         Path("/venv/bin/python"),
         Path("/work/source.dxf"),
         Path("/work"),
-        {"scale_from_wall": ["0", "0", "120", "0", "10ft"], "height_ft": 10.0, "walls": ["WALLS"]},
+        {"trust_extracted_scale": True, "height_ft": 10.0, "walls": ["WALLS"]},
     )
 
     assert command[:3] == ["/venv/bin/python", "-m", "archiagent"]
     assert "--dxfFilePath" in command and "/work/source.dxf" in command
     assert "--outputDir" in command and "/work" in command
-    span = command.index("--scale-from-wall")
-    assert command[span + 1:span + 6] == ["0", "0", "120", "0", "10ft"]
+    assert "--trust-extracted-scale" in command
     assert command[command.index("--height") + 1] == "10.0"
     assert command[command.index("--walls") + 1] == "WALLS"
 
 
 def test_command_omits_flags_that_were_not_requested():
     command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {})
-    assert "--scale-from-wall" not in command
     assert "--trust-extracted-scale" not in command
+    assert "--scale-from-wall" not in command
     assert "--walls" not in command
     assert "--height" not in command
 
@@ -69,3 +68,21 @@ def test_collect_artifacts_never_returns_the_source_itself(tmp_path):
     (tmp_path / "source.dxf").write_text("0\nSECTION\n")
     (tmp_path / "source.ifc").write_bytes(b"ISO-10303-21;")
     assert [p.name for p in collect_artifacts(tmp_path)] == ["source.ifc"]
+
+
+def test_an_asserted_wall_becomes_five_scale_from_wall_arguments():
+    command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {"scale_from_wall": [
+        {"x1": 0.0, "y1": 0.0, "x2": 120.0, "y2": 0.0, "length": "10'-6\""},
+        {"x1": -5.5, "y1": 2.0, "x2": -5.5, "y2": 98.0, "length": "8ft"},
+    ]})
+    first = command.index("--scale-from-wall")
+    assert command[first + 1:first + 6] == ["0.0", "0.0", "120.0", "0.0", "10'-6\""]
+    second = command.index("--scale-from-wall", first + 1)
+    assert command[second + 1:second + 6] == ["-5.5", "2.0", "-5.5", "98.0", "8ft"]
+
+
+def test_a_stored_units_per_foot_is_never_forwarded():
+    """archiAgent removed --units-per-foot and exits 3 (bad usage) on it. Jobs
+    queued before this change may still carry the option."""
+    command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {"units_per_foot": 12})
+    assert "--units-per-foot" not in command

@@ -39,13 +39,12 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
         source.suffix.lower(), "--dxfFilePath"
     )
     command = [str(python), "-m", "archiagent", flag, str(source), "--outputDir", str(out_dir)]
-    # Five values: X1 Y1 X2 Y2 LENGTH, in the drawing's own coordinates.
-    if span := options.get("scale_from_wall"):
-        if len(span) != 5:
-            raise ValueError("scale_from_wall needs five values: X1 Y1 X2 Y2 LENGTH")
-        command += ["--scale-from-wall", *(str(v) for v in span)]
+    # `units_per_foot` may still sit in an older job's stored options; the CLI
+    # removed --units-per-foot, so it is deliberately not forwarded.
     if options.get("trust_extracted_scale"):
-        command += ["--trust-extracted-scale"]
+        command.append("--trust-extracted-scale")
+    for wall in options.get("scale_from_wall") or ():
+        command += ["--scale-from-wall", *(str(wall[k]) for k in ("x1", "y1", "x2", "y2", "length"))]
     if (height := options.get("height_ft")) is not None:
         command += ["--height", str(height)]
     if walls := options.get("walls"):

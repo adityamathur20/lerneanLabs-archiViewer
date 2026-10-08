@@ -247,8 +247,9 @@ JOB=$(echo "$UP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_
 URL=$(echo "$UP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["upload_url"])')
 
 curl -fsS -X PUT --upload-file plan.dxf -H "content-length: ${SIZE}" "$URL"
-# trust_extracted_scale: use the drawing's own dimensions rather than
-# asserting a wall. Scale is never taken from the file header alone.
+# archiAgent will not guess a scale. Either trust the drawing's own
+# dimensions, or assert one wall in source coordinates:
+#   {"scale_from_wall": [{"x1": 0, "y1": 0, "x2": 120, "y2": 0, "length": "10ft"}]}
 curl -fsS -X POST "https://api.planto3d.in/v1/jobs/${JOB}/start" \
   -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
   -d '{"trust_extracted_scale": true}'

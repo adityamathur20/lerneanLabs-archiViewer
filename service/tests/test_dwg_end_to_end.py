@@ -6,6 +6,7 @@ import pytest
 from archiagent_service.models import Job, Tenant, ulid
 from archiagent_service.storage import get_store
 from archiagent_service.worker import run_job
+from tests._scale import scale_options
 
 DWG = os.environ.get("ARCHIAGENT_DWG")
 
@@ -22,7 +23,7 @@ def test_a_dwg_upload_produces_an_ifc(pg_engine, s3):
     session.flush()
     job = Job(
         id=ulid(), tenant_id=tenant.id, status="queued", source_filename="plan.dwg",
-        options={"walls": ["WALLS"], "trust_extracted_scale": True},
+        options={"walls": ["WALLS"], **scale_options()},
     )
     session.add(job)
     session.commit()

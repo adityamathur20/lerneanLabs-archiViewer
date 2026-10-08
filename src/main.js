@@ -243,10 +243,10 @@ async function convert() {
   button.disabled = true;
   input.disabled = true;
   try {
+    progress.textContent = `uploading ${file.name}…`;
     // Scale is no longer a number the user is expected to know. Either the
     // drawing's own dimensions are trusted, or the pipeline refuses and says
     // what it found -- which the failure branch below surfaces verbatim.
-    progress.textContent = `uploading ${file.name}…`;
     const jobId = await source.createJob(file, file.name, {
       trust_extracted_scale: el("trust-scale").checked,
     });

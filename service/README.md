@@ -112,7 +112,9 @@ ARCHIAGENT_DXF=/path/plan.dxf .venv/bin/pytest tests/test_end_to_end.py -q -s
 
 Tests needing Postgres or S3 skip with instructions when the stack is down —
 they never pass silently. The end-to-end test really runs archiAgent; with
-`--walls WALLS --trust-extracted-scale` it needs no LLM key and takes about a minute.
+`--walls WALLS` it needs no LLM key and takes about a minute. It trusts the
+fixture's own dimensions for scale; for a fixture without usable dimensions set
+`ARCHIAGENT_SCALE_FROM_WALL="X1 Y1 X2 Y2 LENGTH"` to assert one wall instead.
 
 ## Not in Phase 3
 
