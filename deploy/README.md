@@ -320,7 +320,16 @@ docker run --rm -v "$PWD":/app -w /app -e VITE_API_BASE=https://api.planto3d.in 
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
 docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --force-recreate caddy
 ```
+
+**Always recreate caddy.** `up -d` leaves it running when its image is
+unchanged, and it then keeps serving what it mounted at its last start: the
+Caddyfile is a single-file bind mount, so `git pull` replacing the file is
+invisible to it, and on the 2026-10-08 deploy its view of `dist/cad/` was empty
+too. `caddy reload` does not help — it re-reads the stale mount. Recreating takes
+seconds; certificates live in the `caddy_data` volume and are not re-issued.
+Check with `curl -sSI https://planto3d.in/cad` → `308`.
 
 GHCR packages are **private by default**, so authenticate once before the
 first `pull` — otherwise it 401s:
