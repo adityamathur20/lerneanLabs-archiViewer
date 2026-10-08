@@ -7,6 +7,7 @@ from archiagent_service.auth import issue_key
 from archiagent_service.models import Job, Tenant, ulid
 from archiagent_service.storage import get_store
 from archiagent_service.worker import run_job
+from tests._scale import scale_options
 
 DXF = os.environ.get("ARCHIAGENT_DXF")
 
@@ -28,7 +29,7 @@ def test_a_dxf_becomes_an_ifc_in_object_storage(pg_engine, s3):
     issue_key(session, tenant.id)
     job = Job(
         id=ulid(), tenant_id=tenant.id, status="queued", source_filename="plan.dxf",
-        options={"walls": ["WALLS"], "units_per_foot": 12},
+        options={"walls": ["WALLS"], **scale_options()},
     )
     session.add(job)
     session.commit()
