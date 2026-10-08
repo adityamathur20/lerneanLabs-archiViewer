@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>archiAgent · Drawing</title>
+    <style>
+      :root {
+        --bg: #14161a;
+        --panel: #1c1f25;
+        --line: #2b3038;
+        --text: #e6e8ec;
+        --muted: #949aa6;
+        --accent: #6c8cff;
+        --warn: #e8833a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+      }
+      aside {
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+        padding: 16px;
+        overflow-y: auto;
+      }
+      h1 { font-size: 14px; margin: 0 0 2px; letter-spacing: .2px; }
+      .sub { color: var(--muted); font-size: 11px; margin-bottom: 18px; }
+      h2 {
+        font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
+        color: var(--muted); margin: 20px 0 8px; font-weight: 600;
+      }
+      select, button, a.button {
+        display: block; width: 100%; background: #23272f; color: var(--text);
+        border: 1px solid var(--line); border-radius: 6px;
+        padding: 7px 9px; font: inherit; text-align: center; text-decoration: none;
+      }
+      select { text-align: left; }
+      button, a.button { cursor: pointer; margin-top: 6px; }
+      button:hover:not(:disabled), a.button:hover { border-color: var(--accent); }
+      button:disabled { opacity: .45; cursor: default; }
+      button.active { border-color: var(--accent); color: var(--accent); }
+      a.button[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+      .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .tools button { margin-top: 0; }
+      #layers { max-height: 40vh; overflow-y: auto; }
+      label.row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 2px 0; cursor: pointer; overflow-wrap: anywhere;
+      }
+      label.row .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+      #notes { color: var(--warn); font-size: 11px; white-space: pre-wrap; }
+      main { position: relative; min-width: 0; }
+      #cad { position: absolute; inset: 0; }
+      #status {
+        position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        color: var(--muted); font-size: 12px; z-index: 10; pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>archiAgent → Drawing</h1>
+      <div class="sub">The drawing archiAgent read: your DXF, or ODA's conversion of your DWG</div>
+
+      <h2>Drawing</h2>
+      <select id="drawings"><option value="">loading…</option></select>
+      <button id="reload">Reload</button>
+      <a class="button" id="toModel" href="/" aria-disabled="true">Open 3D model</a>
+      <div class="sub" id="root" style="margin-top:8px"></div>
+      <div id="auth" style="margin-top:8px; display:none">
+        <div class="sub">Enter your API key in the 3D view, then come back.</div>
+        <a class="button" href="/">Go to the 3D view</a>
+      </div>
+
+      <h2>View</h2>
+      <div class="tools">
+        <button id="fit">Fit drawing</button>
+        <button id="measure">Measure distance</button>
+      </div>
+      <button id="clearMeasures">Clear measurements</button>
+      <div class="sub" id="hint" style="margin-top:6px"></div>
+
+      <h2>Layers</h2>
+      <div class="tools">
+        <button id="allOn">All on</button>
+        <button id="allOff">All off</button>
+      </div>
+      <div id="layers" style="margin-top:8px"><span class="sub">—</span></div>
+
+      <h2>Notes</h2>
+      <div id="notes"></div>
+    </aside>
+    <main>
+      <div id="cad"></div>
+      <div id="status">loading…</div>
+    </main>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

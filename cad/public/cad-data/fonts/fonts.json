@@ -1,0 +1,17 @@
+[
+  {
+    "file": "LiberationSans-Regular.ttf",
+    "type": "mesh",
+    "name": ["LiberationSans", "Liberation Sans", "simplex", "romans", "romand", "txt", "standard", "isocp", "isocpeur", "iso", "monotxt", "amgdt", "gdt", "simsun", "hztxt", "gbcbig", "arial", "arialn", "helvetica", "tahoma", "verdana", "calibri", "segoeui", "swiss", "dejavusans"]
+  },
+  {
+    "file": "LiberationSerif-Regular.ttf",
+    "type": "mesh",
+    "name": ["LiberationSerif", "Liberation Serif", "times", "timesnewroman", "times new roman", "romanc", "romant", "complex"]
+  },
+  {
+    "file": "LiberationMono-Regular.ttf",
+    "type": "mesh",
+    "name": ["LiberationMono", "Liberation Mono", "courier", "couriernew", "courier new", "consolas"]
+  }
+]

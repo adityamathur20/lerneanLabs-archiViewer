@@ -42,6 +42,13 @@
         padding: 7px 9px; font: inherit;
       }
       button { cursor: pointer; margin-top: 6px; }
+      a.button {
+        display: block; margin-top: 6px; padding: 7px 9px; text-align: center;
+        background: #23272f; color: var(--text); text-decoration: none;
+        border: 1px solid var(--line); border-radius: 6px;
+      }
+      a.button:hover { border-color: var(--accent); }
+      a.button[aria-disabled="true"] { opacity: .45; pointer-events: none; }
       button:hover:not(:disabled) { border-color: var(--accent); }
       button:disabled { opacity: .45; cursor: default; }
       table { width: 100%; border-collapse: collapse; }
@@ -71,7 +78,7 @@
 
       <h2>Convert</h2>
       <div id="upload">
-        <input id="file" type="file" accept=".dxf,.pdf" />
+        <input id="file" type="file" accept=".dxf,.dwg,.pdf" />
         <label class="row" style="margin-top:6px">
           <input id="trust-scale" type="checkbox" checked style="width:auto" />
           <span style="flex:1">Use the dimensions already in this drawing</span>
@@ -87,6 +94,7 @@
       <h2>Model</h2>
       <select id="manifests"><option value="">loading…</option></select>
       <button id="reload">Reload</button>
+      <a id="toDrawing" class="button" href="/cad/" aria-disabled="true">Open drawing</a>
       <div class="sub" id="root" style="margin-top:8px"></div>
       <div id="auth" style="margin-top:8px; display:none">
         <input id="apiKey" type="password" placeholder="API key (ak_…)" style="width:100%" />

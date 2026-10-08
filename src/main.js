@@ -97,7 +97,23 @@ function fail(message, detail = "") {
   el("notes").textContent = detail || message;
 }
 
+let models = [];
+
+/** The Drawing view opens the same job's plan.dxf (a PDF job has none). */
+function updateDrawingLink(id) {
+  const model = models.find((m) => m.id === id);
+  const link = el("toDrawing");
+  // The disk source cannot say whether a DXF sits beside the IFC; the Drawing
+  // view's own list is the authority there, so it opens without a selection.
+  const has = source.kind === "api" ? model?.hasDrawing : true;
+  link.href = source.kind === "api" && has ? `/cad/?id=${encodeURIComponent(id)}` : "/cad/";
+  if (has) link.removeAttribute("aria-disabled");
+  else link.setAttribute("aria-disabled", "true");
+  link.textContent = has ? "Open drawing" : "No drawing for this job (PDF)";
+}
+
 async function show(relativePath, name) {
+  updateDrawingLink(relativePath);
   status.textContent = `loading ${name}…`;
   status.style.display = "";
   el("notes").textContent = "";
@@ -183,7 +199,7 @@ renderer.domElement.addEventListener("click", async (event) => {
 async function loadList() {
   const select = el("manifests");
   try {
-    const models = await source.list();
+    models = await source.list();
     el("root").textContent = `reading ${source.describe()}`;
     if (models.length === 0) {
       select.innerHTML = "<option value=''>no models found</option>";
@@ -207,7 +223,10 @@ async function loadList() {
         return option;
       }),
     );
-    await show(models[0].id, models[0].name);
+    // Coming back from the Drawing view keeps the same job selected.
+    const wanted = models.find((m) => m.id === new URLSearchParams(location.search).get("id")) ?? models[0];
+    select.value = wanted.id;
+    await show(wanted.id, wanted.name);
   } catch (error) {
     if (error instanceof SourceError && error.status === 401) {
       el("auth").style.display = "";
@@ -231,7 +250,7 @@ async function convert() {
   const file = input.files?.[0];
   const progress = el("progress");
   if (!file) {
-    progress.textContent = "choose a .dxf or .pdf first";
+    progress.textContent = "choose a .dxf, .dwg or .pdf first";
     return;
   }
   if (source.kind !== "api") {

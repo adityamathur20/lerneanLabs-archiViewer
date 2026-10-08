@@ -54,7 +54,7 @@ planto3d.in {
 	# Vite hashes every asset name, so these are immutable. Without this the
 	# box re-compresses ~14 MB per cold visit, and CPU is the one resource
 	# spec §11 says is scarce.
-	@assets path /assets/* /web-ifc/*
+	@assets path /assets/* /web-ifc/* /cad/assets/*
 	header @assets Cache-Control "public, max-age=31536000, immutable"
 
 	# Dotfiles are never content. Without this a stray .env or .git copied into
@@ -65,10 +65,16 @@ planto3d.in {
 	# /index.html — which then no longer matched /\. and returned 200 with the
 	# page body. The existing-file case was still refused, so nothing leaked,
 	# but the post-deploy scan's own check failed on a correct deploy.
+	# The Drawing view lives at /cad/. Its asset URLs are absolute, but a
+	# trailing slash keeps relative links and the address bar honest.
+	redir /cad /cad/ 308
+
 	route {
 		@hidden path_regexp /\.
 		respond @hidden 404
-		try_files {path} /index.html
+		# {path}/ so /cad (no slash) reaches the Drawing view's
+		# /cad/index.html instead of falling through to the 3D view.
+		try_files {path} {path}/ /index.html
 		file_server
 	}
 }

@@ -16,7 +16,7 @@ export { fragIsCurrent };
 const OUT_ROOT = path.resolve(process.env.ARCHIAGENT_OUT ?? path.resolve(process.cwd(), ".."));
 const SUFFIX = ".ifc";
 
-export async function findModels(dir, depth = 0) {
+export async function findModels(dir, depth = 0, suffix = SUFFIX) {
   if (depth > 3) return [];
   let entries;
   try {
@@ -28,12 +28,12 @@ export async function findModels(dir, depth = 0) {
   for (const entry of entries) {
     if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...(await findModels(full, depth + 1)));
-    else if (entry.name.toLowerCase().endsWith(SUFFIX)) {
+    if (entry.isDirectory()) found.push(...(await findModels(full, depth + 1, suffix)));
+    else if (entry.name.toLowerCase().endsWith(suffix)) {
       const info = await stat(full);
       found.push({
         path: path.relative(OUT_ROOT, full),
-        name: entry.name.slice(0, -SUFFIX.length),
+        name: entry.name.slice(0, -suffix.length),
         bytes: info.size,
         modified: info.mtime.toISOString(),
       });
@@ -76,6 +76,42 @@ function archiagentOutput() {
           res.statusCode = 403;
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify({ error: `only ${SUFFIX} files inside ARCHIAGENT_OUT are served` }));
+          return;
+        }
+        try {
+          const body = await readFile(resolved);
+          res.setHeader("content-type", "application/octet-stream");
+          res.end(body);
+        } catch (error) {
+          res.statusCode = 404;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: String(error?.message ?? error) }));
+        }
+      });
+
+      // The Drawing view (cad/). A drawing is any DXF under the root: the
+      // CLI keeps a DWG's conversion beside its outputs, and a DXF run's input
+      // usually sits next to them too. hasModel says whether an IFC of the
+      // same name is beside it.
+      server.middlewares.use("/api/drawings", async (_req, res) => {
+        const drawings = (await findModels(OUT_ROOT, 0, ".dxf")).sort((a, b) =>
+          b.modified.localeCompare(a.modified),
+        );
+        for (const d of drawings) {
+          d.hasModel = await stat(path.join(OUT_ROOT, d.path.replace(/\.dxf$/i, ".ifc")))
+            .then(() => true, () => false);
+        }
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ root: OUT_ROOT, drawings }));
+      });
+
+      server.middlewares.use("/api/drawing", async (req, res) => {
+        const requested = new URL(req.url, "http://localhost").searchParams.get("path");
+        const resolved = resolveWithinRoot(OUT_ROOT, requested, ".dxf");
+        if (!resolved) {
+          res.statusCode = 403;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "only .dxf files inside ARCHIAGENT_OUT are served" }));
           return;
         }
         try {
