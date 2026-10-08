@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from archiagent_service.config import get_settings
 
 # What archiagent can ingest. A DWG is converted to DXF by Tier 1 (the ODA File
-# Converter) before the pipeline sees it.
+# Converter, installed in the worker image) before the pipeline sees it.
 ALLOWED_SUFFIXES = {".dxf", ".dwg", ".pdf"}
 
 
@@ -21,6 +21,8 @@ def dwg_supported() -> bool:
     with a generic error. Cached: it is a filesystem probe on a fixed path.
     """
     settings = get_settings()
+    if settings.dwg_enabled is not None:
+        return settings.dwg_enabled
     try:
         completed = subprocess.run(
             [str(settings.archiagent_python), "-c",
@@ -51,7 +53,7 @@ def validate_upload(filename: str, size: int, max_bytes: int) -> str:
         raise HTTPException(
             status_code=400,
             detail="this deployment cannot convert DWG (no ODA File Converter on "
-                   "the worker); export DXF and upload that instead",
+                   "the worker); export DXF from your CAD software and upload that instead",
         )
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(

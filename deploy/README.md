@@ -256,13 +256,20 @@ curl -fsS -X POST "https://api.planto3d.in/v1/jobs/${JOB}/start" \
 curl -fsS "https://api.planto3d.in/v1/jobs/${JOB}" -H "Authorization: Bearer $KEY"
 ```
 
-A `.dwg` upload must return **400**, not 500 — the worker ships no ODA
-converter by design.
+Repeat with a `.dwg` (filename `plan.dwg`): it must be accepted, and the
+finished job must list `plan.dxf` among its artifacts — ODA's conversion, which
+is what the viewer's Drawing view opens.
 
 Then, **in a browser** — this is the step that proves §4.3 and §4.4, and
 nothing else does: open `https://planto3d.in`, enter the key, and confirm the
 job lists and renders. A download that works under `curl` on the box but fails
 in a browser is the presign-host or CORS failure, not a storage fault.
+
+Then **Open drawing** on the DWG job: `https://planto3d.in/cad/` must show the
+plan, toggle layers and measure a distance. `npm run build` builds this view
+too (`dist/cad/`); a blank drawing area with the plan's layers listed means its
+fonts or MTEXT worker did not load — check the browser console for 404s under
+`/cad/`.
 
 Finally:
 
@@ -334,8 +341,9 @@ Rollback: `IMAGE_TAG=<previous-sha> docker compose -f docker-compose.prod.yml up
 
 ## Known limitations
 
-- **DXF and PDF only.** `.dwg` returns 400: the ODA converter is a macOS
-  bundle, and its terms restrict hosted use.
+- **ODA's licence for hosted use is unconfirmed.** The worker runs the ODA File
+  Converter (free download) for every DWG. Confirm in writing that ODA's terms
+  allow this in a commercial service before launch.
 - **Multi-page PDFs convert page 0.** `build_command` plumbs no `page` option.
 - **No signup.** There is no self-serve registration: you issue keys by hand
   with the script in section 8. The viewer has an upload form, which uses the

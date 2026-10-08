@@ -147,3 +147,16 @@ test("the queue timeout stays larger than the conversion timeout", () => {
   assert.ok(cli >= 3600, `cli timeout ${cli}s must exceed the measured 31m42s`);
   assert.ok(queue > cli, `queue timeout ${queue}s must exceed cli ${cli}s`);
 });
+
+test("DWG is enabled on the api only because the worker image carries ODA", () => {
+  // The api container cannot probe the worker, so it is told. Saying yes
+  // without ODA in the worker queues jobs that fail minutes later; carrying
+  // ODA without saying yes refuses every DWG with a 400.
+  const api = serviceBlocks().find((b) => b.trim().startsWith("api:"));
+  assert.match(api, /ARCHIAGENT_SERVICE_DWG_ENABLED:\s*"true"/);
+  const worker = strip(readFileSync(new URL("../service/Dockerfile.worker", import.meta.url), "utf8"));
+  assert.match(worker, /ODA_DEB_SHA256="[0-9a-f]{64}"/, "ODA must be pinned by checksum: its download URL is unversioned");
+  assert.match(worker, /sha256sum -c/, "the pinned checksum must actually be verified");
+  assert.match(worker, /ENV ARCHIAGENT_ODA_CONVERTER=\/usr\/local\/bin\/oda-file-converter/);
+  assert.match(worker, /xvfb-run/, "ODA's Linux build ships only Qt's xcb plugin, so it needs an X server");
+});

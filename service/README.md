@@ -52,21 +52,29 @@ tenant's job, because a 403 would confirm that the job exists.
 and then follow the DXF path exactly; `converted_from_dwg` records it on the
 job. The service never runs ODA itself — it only passes `--dwgFilePath`.
 
-`.dwg` is **refused with a 400 at upload time** on a worker with no converter,
-rather than queued and failed minutes later. The converted `plan.dxf` is kept as
-a job artifact: ODA's output is not byte-deterministic, so it is the only way to
-reproduce or debug a DWG-derived result, and it is what `--replay-manifest`
-must be replayed against.
+`.dwg` is **refused with a 400 at upload time** where no converter exists,
+rather than queued and failed minutes later. Locally the API asks Tier 1; in
+production the API container cannot see the worker, so the deployment states it
+with `ARCHIAGENT_SERVICE_DWG_ENABLED=true` (set in `docker-compose.prod.yml`).
 
-The converter must be installed on the worker host
-(`/Applications/ODAFileConverter.app/...`, or set `ARCHIAGENT_ODA_CONVERTER`).
+Every DXF and DWG job stores **`plan.dxf`**, the drawing the viewer opens: the
+upload itself for a DXF, ODA's conversion for a DWG. For a DWG it is also the
+only way to reproduce or debug the result (ODA's output is not
+byte-deterministic), and it is what `--replay-manifest` must be replayed
+against. The browser never receives a DWG.
+
+The converter must be installed where the worker runs. The worker image
+(`Dockerfile.worker`) installs ODA's Linux package, pinned by checksum, with
+`xvfb`, and points `ARCHIAGENT_ODA_CONVERTER` at a wrapper that gives each
+conversion a private X display. On macOS it is
+`/Applications/ODAFileConverter.app/...`.
 It **exits 0 even when conversion fails**, writing `<name>.dxf.err` instead, so
 the return code is never trusted; failures surface the converter's own message.
 
-> **Licence.** ODA File Converter is free to download, but its redistribution
-> terms restrict bundling into a hosted service. Local and self-hosted use is
-> fine; clearing SaaS distribution is a business prerequisite, not an
-> engineering task.
+> **Licence.** ODA File Converter is free to download. Running it inside the
+> hosted service was decided on 2026-10-08; whether ODA's terms permit that for
+> a commercial SaaS has not been confirmed in writing and should be, before
+> launch. The image is on private GHCR, so the converter is not redistributed.
 
 ## How work is paced
 
@@ -97,8 +105,6 @@ job failed too.
 - **Artifacts are named `plan.*`.** The CLI derives its output stem from the
   input filename, so the worker writes its working copy as `plan.dxf` and the
   artifacts come out as the spec §3 contract names them.
-- **`.dwg` is refused with a 400 until Phase 4.** Accepting it today would queue
-  a job that fails minutes later inside the CLI.
 - **The worker runs the CLI with the venv at
   `lerneanLabs-archiAgent/.venv/bin/python`.** Override with
   `ARCHIAGENT_SERVICE_ARCHIAGENT_PYTHON`.

@@ -87,6 +87,10 @@ services:
       ARCHIAGENT_SERVICE_CORS_ORIGINS: ${ARCHIAGENT_SERVICE_CORS_ORIGINS}
       # The api enqueues, so it is the side that sets the job's timeout.
       ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S: ${ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S:-7200}
+      # This container cannot see the worker's ODA File Converter, so it is
+      # told: Dockerfile.worker installs it. Literal, like the LLM settings,
+      # because it is a property of the image, not of the host.
+      ARCHIAGENT_SERVICE_DWG_ENABLED: "true"
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
