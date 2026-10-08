@@ -18,5 +18,5 @@ stroke fonts.
 
 Licence text: `public/cad-data/fonts/LICENSE-Liberation.txt`.
 
-Not covered: CJK glyphs. A drawing whose text is Chinese or Japanese will show
-missing glyphs until a CJK font (e.g. Noto Sans CJK, also OFL) is added here.
+**English only, by decision (2026-10-08).** Drawings with Chinese or Japanese
+text will show missing glyphs for those characters; no CJK font is shipped.
