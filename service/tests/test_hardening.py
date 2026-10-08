@@ -1,4 +1,6 @@
 """Tests for the final-review findings. Each reproduces a defect first."""
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -235,6 +237,26 @@ def test_dwg_is_accepted_when_a_converter_is_available(monkeypatch):
 
     monkeypatch.setattr(uploads, "dwg_supported", lambda: True)
     assert uploads.validate_upload("plan.dwg", 1000, 10_000) == ".dwg"
+
+
+def test_the_deployment_setting_decides_when_set(monkeypatch):
+    """The production API container has no archiAgent to ask, so the probe
+    would always refuse DWG there. dwg_enabled overrides it either way."""
+    from archiagent_service import uploads
+    from archiagent_service.config import get_settings
+
+    uploads.dwg_supported.cache_clear()
+    monkeypatch.setattr(get_settings(), "archiagent_python", Path("/nonexistent/python"))
+    monkeypatch.setattr(get_settings(), "dwg_enabled", True)
+    assert uploads.dwg_supported() is True
+    uploads.dwg_supported.cache_clear()
+    monkeypatch.setattr(get_settings(), "dwg_enabled", False)
+    assert uploads.dwg_supported() is False
+    uploads.dwg_supported.cache_clear()
+    # Unset: fall back to asking Tier 1, which is absent here.
+    monkeypatch.setattr(get_settings(), "dwg_enabled", None)
+    assert uploads.dwg_supported() is False
+    uploads.dwg_supported.cache_clear()
 
 
 # --- Phase 4 review, Important 10: provenance on the failure path too --------

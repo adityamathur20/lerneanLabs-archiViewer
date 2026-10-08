@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "dev:cad": "npm --prefix cad run dev",
+    "build": "vite build && npm --prefix cad run build",
+    "postinstall": "npm --prefix cad ci",
     "preview": "vite preview",
     "test": "node --test tests/",
     "smoke": "node scripts/smoke.mjs",
     "shot": "node scripts/shot.mjs",
     "build:frag": "node scripts/build-frag.mjs",
     "csp": "node scripts/csp-check.mjs",
-    "security": "node scripts/security-scan.mjs"
+    "security": "node scripts/security-scan.mjs",
+    "check:cad": "node scripts/cad-check.mjs"
   },
   "description": "Renders archiAgent's authored IFC in the browser with @thatopen/fragments.",
   "dependencies": {

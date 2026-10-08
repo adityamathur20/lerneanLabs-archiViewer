@@ -19,6 +19,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgl1 libglib2.0-0 fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 
+# --- DWG -> DXF: the ODA File Converter ----------------------------------------
+# archiAgent's Tier 1 (archiagent/ingest/dwg.py) runs it as a subprocess on
+# every DWG; the browser only ever receives the resulting DXF.
+#
+# ODA publishes the Linux package under an UNVERSIONED filename, so the
+# download is pinned by checksum: when ODA ships a new build the image fails to
+# build here, loudly, instead of silently changing every conversion. To take an
+# update, download it, compare its output on the corpus
+# (lerneanLabs-archiAgent/scripts/gates/dwg_fidelity.py), then bump both ARGs.
+# 27.9.0.0 measured 2026-10-08: same DXF as the macOS 27.1 build on the corpus,
+# apart from header timestamps and one reordered dictionary record.
+#
+# Only Qt's xcb platform plugin ships in the package, so even a headless
+# conversion needs an X server: xvfb. The other libraries are what ldd reported
+# missing against python:3.12-slim.
+ARG ODA_DEB_URL="https://www.opendesign.com/guestfiles/get?filename=ODAFileConverter_QT6_lnxX64_11dll.deb"
+ARG ODA_DEB_SHA256="12f5e14c55c35176062f63e242d5390f732722213dd685fa3cd44a6555384cd0"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl xvfb xauth \
+      libegl1 libopengl0 libglx0 libx11-6 libx11-xcb1 libdbus-1-3 libfontconfig1 \
+      libfreetype6 libxkbcommon0 libxkbcommon-x11-0 libgssapi-krb5-2 libxrender1 \
+      libsm6 libice6 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+      libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
+      libxcb-util1 \
+ && curl -fsSL --retry 3 -o /tmp/oda.deb "$ODA_DEB_URL" \
+ && echo "$ODA_DEB_SHA256  /tmp/oda.deb" | sha256sum -c - \
+ && apt-get install -y --no-install-recommends /tmp/oda.deb \
+ && rm -f /tmp/oda.deb \
+ && apt-get purge -y curl && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
+# What archiAgent calls. A private X display per conversion (-a), no TCP.
+RUN printf '%s\n' '#!/bin/sh' \
+      'exec xvfb-run -a --server-args="-screen 0 640x480x24 -nolisten tcp" /usr/bin/ODAFileConverter "$@"' \
+      > /usr/local/bin/oda-file-converter \
+ && chmod 755 /usr/local/bin/oda-file-converter
+ENV ARCHIAGENT_ODA_CONVERTER=/usr/local/bin/oda-file-converter
+
 # --- Tier 1, in its own venv -------------------------------------------------
 # Only the package and its metadata. Copying the whole repository would bake
 # .git (full history), .venv, docs and local scratch into an image published to

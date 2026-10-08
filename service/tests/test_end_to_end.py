@@ -45,6 +45,10 @@ def test_a_dxf_becomes_an_ifc_in_object_storage(pg_engine, s3):
         assert finished.exit_code is not None
         assert finished.finished_at is not None
         assert finished.timings_ms.get("author", 0) > 0
+        # The viewer opens plan.dxf for DXF and DWG uploads alike, and it is
+        # the uploaded drawing, byte for byte.
+        assert "plan.dxf" in finished.artifacts, finished.artifacts
+        assert get_store().get(f"{prefix}plan.dxf") == Path(DXF).read_bytes()
 
         if finished.status == "succeeded":
             ifcs = [n for n in finished.artifacts if n.endswith(".ifc")]

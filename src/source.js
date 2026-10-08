@@ -52,7 +52,34 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
           id: job.job_id,
           name: job.source?.filename ?? job.job_id,
           label: `${job.source?.filename ?? job.job_id} — ${job.job_id}`,
+          hasDrawing: (job.artifacts ?? []).includes("plan.dxf"),
         }));
+    },
+
+    /**
+     * Every job with a drawing to show, whatever its outcome: a job that
+     * failed because its scale could not be established still has its
+     * plan.dxf, and that is exactly the drawing a user opens to measure a wall.
+     */
+    async listDrawings() {
+      const response = await fetchImpl(`${trimmed}/v1/jobs?limit=200`, init());
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      const { jobs = [] } = await response.json();
+      return jobs
+        .filter((job) => (job.artifacts ?? []).includes("plan.dxf"))
+        .map((job) => ({
+          id: job.job_id,
+          name: job.source?.filename ?? job.job_id,
+          label: `${job.source?.filename ?? job.job_id} — ${job.status}`,
+          hasModel: (job.artifacts ?? []).includes("plan.ifc"),
+        }));
+    },
+
+    /** The DXF the viewer opens: the upload itself, or ODA's conversion of a DWG. */
+    async fetchDxf(id) {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}/artifacts/plan.dxf`, init());
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return new Uint8Array(await response.arrayBuffer());
     },
 
     async fetchIfc(id) {
@@ -136,6 +163,19 @@ export function createDiskSource({ fetchImpl = globalThis.fetch } = {}) {
 
     async fetchIfc(id) {
       const response = await fetchImpl(`/api/model?path=${encodeURIComponent(id)}`);
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return new Uint8Array(await response.arrayBuffer());
+    },
+
+    async listDrawings() {
+      const response = await fetchImpl("/api/drawings");
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      const { drawings = [] } = await response.json();
+      return drawings.map((d) => ({ id: d.path, name: d.name, label: `${d.name} — ${d.path}`, hasModel: d.hasModel }));
+    },
+
+    async fetchDxf(id) {
+      const response = await fetchImpl(`/api/drawing?path=${encodeURIComponent(id)}`);
       if (!response.ok) throw new SourceError(await detail(response), response.status);
       return new Uint8Array(await response.arrayBuffer());
     },

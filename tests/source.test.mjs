@@ -214,3 +214,56 @@ test("options with no value are not sent at all", async () => {
   await source.createJob(new Blob(["x"]), "plan.dxf", { trust_extracted_scale: null, height_ft: 10 });
   assert.deepEqual(startBody, { height_ft: 10 });
 });
+
+// --- the Drawing view (cad/) -------------------------------------------------
+
+test("drawings include jobs that failed, because a failed job still has its plan.dxf", async () => {
+  // A DXF refused for want of a scale is exactly the drawing a user opens to
+  // measure a wall, so the Drawing view must list it; the 3D list must not.
+  const jobs = [
+    apiJob({ id: "OK", filename: "a.dwg", artifacts: ["plan.dxf", "plan.ifc"] }),
+    apiJob({ id: "NOSCALE", status: "failed", filename: "b.dxf", artifacts: ["plan.dxf"] }),
+    apiJob({ id: "PDF", filename: "c.pdf", artifacts: ["plan.ifc"] }),
+  ];
+  const source = createApiSource({ base: "https://api.planto3d.in", token: "k", fetchImpl: async () => jsonResponse({ jobs }) });
+
+  const drawings = await source.listDrawings();
+  assert.deepEqual(drawings.map((d) => [d.id, d.hasModel]), [["OK", true], ["NOSCALE", false]]);
+  assert.match(drawings[1].label, /failed/);
+
+  const models = await source.list();
+  assert.deepEqual(models.map((m) => [m.id, m.hasDrawing]), [["OK", true], ["PDF", false]]);
+});
+
+test("the drawing is the job's plan.dxf, fetched with the bearer token", async () => {
+  let seen;
+  const source = createApiSource({
+    base: "https://api.planto3d.in/",
+    token: "ak_secret",
+    fetchImpl: async (url, init) => {
+      seen = { url, init };
+      return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array([1, 2]).buffer, headers: new Map() };
+    },
+  });
+  const bytes = await source.fetchDxf("01JOB");
+  assert.equal(seen.url, "https://api.planto3d.in/v1/jobs/01JOB/artifacts/plan.dxf");
+  assert.equal(seen.init.headers.authorization, "Bearer ak_secret");
+  assert.equal(bytes.byteLength, 2);
+});
+
+test("disk source serves drawings through the dev server's confined routes", async () => {
+  const urls = [];
+  const source = createDiskSource({
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url === "/api/drawings") {
+        return jsonResponse({ root: "/out", drawings: [{ path: "a/plan.dxf", name: "plan", hasModel: true }] });
+      }
+      return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array([9]).buffer, headers: new Map() };
+    },
+  });
+  const [drawing] = await source.listDrawings();
+  assert.deepEqual([drawing.id, drawing.hasModel], ["a/plan.dxf", true]);
+  await source.fetchDxf(drawing.id);
+  assert.equal(urls[1], "/api/drawing?path=a%2Fplan.dxf");
+});

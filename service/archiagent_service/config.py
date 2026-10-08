@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     cli_timeout_s: int = 5400
     queue_timeout_s: int = 7200
 
+    # Whether DWG uploads are accepted. Unset, the API asks Tier 1 whether a
+    # converter is installed, which is right for local development where both
+    # tiers share a machine. In production the API container carries no
+    # archiAgent and no ODA, so that probe always says no; the deployment
+    # states it instead, and must only say yes when the worker image carries
+    # the ODA File Converter (Dockerfile.worker).
+    dwg_enabled: bool | None = None
+
     max_upload_bytes: int = 200 * 1024 * 1024
     tenant_max_concurrent: int = 2
 

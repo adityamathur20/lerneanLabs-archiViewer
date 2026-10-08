@@ -75,14 +75,15 @@ def run_job(job_id: str) -> None:
             result = run_cli(source, work, options)
             acceptance = read_acceptance(work)
             artifacts = []
-            if suffix == ".dwg":
-                # ODA's output is not byte-deterministic, so the only way to
-                # reproduce or debug a DWG-derived result is to keep the exact
-                # DXF that produced it.
-                converted = work / f"{WORKING_STEM}.dxf"
-                if converted.is_file():
-                    store.put_file(f"{prefix}{converted.name}", converted)
-                    artifacts.append(converted.name)
+            # `plan.dxf` is the drawing the viewer opens, whichever format was
+            # uploaded. For a DWG it is ODA's conversion, which is also the only
+            # way to reproduce or debug a DWG-derived result: ODA's output is
+            # not byte-deterministic. For a DXF it is the working copy of the
+            # source itself. The browser never receives a DWG.
+            drawing = work / f"{WORKING_STEM}.dxf"
+            if suffix in (".dwg", ".dxf") and drawing.is_file():
+                store.put_file(f"{prefix}{drawing.name}", drawing)
+                artifacts.append(drawing.name)
             for path in collect_artifacts(work):
                 store.put_file(f"{prefix}{path.name}", path)
                 artifacts.append(path.name)

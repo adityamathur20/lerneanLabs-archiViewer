@@ -25,6 +25,16 @@ ARCHIAGENT_OUT=/path/to/your/archiagent/outputDir npm run dev
 levels deep) for `*.ifc` and lists what it finds; requests are confined to that
 root and to `.ifc` files.
 
+`npm install` also installs `cad/` (the Drawing view, below). Run its dev
+server beside the one above:
+
+```bash
+npm run dev:cad          # → http://localhost:5174/cad/, proxies /api to :5173
+```
+
+It lists every `*.dxf` under `ARCHIAGENT_OUT`, through the same confined
+routes (`/api/drawings`, `/api/drawing`).
+
 Produce an IFC with archiAgent:
 
 ```bash
@@ -105,6 +115,38 @@ IFC, and you would review the wrong building with no warning — the cache would
 have become the source of truth, which is exactly what invariant I2 forbids. A
 corrupt or half-written `.frag` likewise falls back to the IFC rather than
 failing the load.
+
+## The Drawing view (`cad/`)
+
+A job's `plan.dxf` in [mlightcad](https://github.com/mlightcad/cad-viewer)'s 2D
+CAD viewer, at `/cad/`: pan, zoom, layers on/off, and distance measurement in
+drawing units. The 3D view links to it per job ("Open drawing"), and it links
+back ("Open 3D model"). It lists jobs that **failed** too: a DXF refused for
+want of a scale still has its `plan.dxf`, and that is the drawing to measure.
+
+- **The browser only ever opens DXF.** A DWG upload is converted on the server
+  by the ODA File Converter (worker image); `plan.dxf` is its conversion.
+- **Its own npm package**, because mlightcad needs `three@0.172` and this app
+  uses `three@0.182`. `npm run build` builds both; `cad/` lands in `dist/cad/`.
+- **MIT only.** mlightcad's DWG/DXF parsers (`@mlightcad/libredwg-*`,
+  `dxf-json*`, `libdxfrw-*`) are GPL and must never be bundled:
+  `tests/licence-boundary.test.mjs` fails the build if they appear.
+- **Self-hosted fonts and worker.** mlightcad's default font CDN serves fonts
+  with no redistribution licence and the CSP blocks it anyway; see
+  `cad/FONTS.md`.
+- **Stage A** of `lerneanLabs-archiAgent/docs/superpowers/plans/2026-10-07-mlightcad-cad-viewer.md`:
+  `cad-simple-viewer` with a thin sidebar. Stage B swaps in the full
+  `cad-viewer` UI on the same engine.
+
+Check a production build of it in real Chrome, under the CSP and routing from
+`deploy/Caddyfile` (build without `VITE_API_BASE`):
+
+```bash
+npm run build && npm run check:cad -- plan.dxf [more.dxf …]
+```
+
+It fails unless each drawing opens and shows, layers toggle, a measurement
+completes, and nothing violates the CSP or leaves the origin.
 
 ## Architecture
 

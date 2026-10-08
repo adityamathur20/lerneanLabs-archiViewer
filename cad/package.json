@@ -1,0 +1,22 @@
+{
+  "name": "archiagent-viewer-cad",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Drawing view: the job's DXF in mlightcad's 2D CAD viewer. Its own package because mlightcad needs three@0.172 and the IFC viewer uses three@0.182; the two never share a bundle. MIT dependencies only: no @mlightcad/libredwg-*, dxf-json* or libdxfrw-* (GPL), which tests/licence-boundary.test.mjs enforces.",
+  "type": "module",
+  "scripts": {
+    "prepare-assets": "node scripts/prepare-assets.mjs",
+    "dev": "npm run prepare-assets && vite",
+    "build": "npm run prepare-assets && vite build"
+  },
+  "dependencies": {
+    "@mlightcad/cad-simple-viewer": "1.7.4",
+    "@mlightcad/data-model": "1.15.2",
+    "@mlightcad/mtext-parser": "1.5.3",
+    "@mlightcad/mtext-renderer": "0.13.3",
+    "@mlightcad/three-renderer": "1.7.4",
+    "lodash-es": "4.17.21",
+    "three": "0.172.0",
+    "vite": "^6.4.3"
+  }
+}
