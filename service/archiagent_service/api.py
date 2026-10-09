@@ -5,11 +5,12 @@ bytes — a 400 MB IFC goes straight from object storage to the client.
 """
 import re
 from pathlib import PurePosixPath
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from archiagent_service.auth import current_tenant, db_session, owned_job
@@ -58,9 +59,22 @@ class StartRequest(BaseModel):
     # needs one of these two (or it fails with the CLI's own explanation).
     trust_extracted_scale: bool | None = None
     scale_from_wall: list[ScaleFromWall] | None = Field(default=None, max_length=8)
+    # Declared wall thicknesses, in inches (archiAgent's --wall-thickness). The
+    # bound mirrors the CLI's, so a bad value fails here rather than minutes
+    # later in the worker.
+    wall_thickness_in: list[Annotated[float, Field(gt=0, le=48, allow_inf_nan=False)]] | None = Field(
+        default=None, min_length=1, max_length=6)
+    wall_thickness_exhaustive: bool | None = None
     # Removed from archiAgent's CLI; kept here only to refuse it by name rather
     # than silently dropping a scale the client thinks it set.
     units_per_foot: float | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _exhaustive_needs_a_set(self):
+        if self.wall_thickness_exhaustive and not self.wall_thickness_in:
+            raise ValueError("wall_thickness_exhaustive needs wall_thickness_in: "
+                             "it says the declared set is complete")
+        return self
 
     @field_validator("units_per_foot")
     @classmethod
