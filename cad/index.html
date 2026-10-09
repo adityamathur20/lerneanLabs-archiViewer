@@ -53,6 +53,13 @@
       .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
       .switch input:disabled + .track { opacity: .4; }
       .switch input:disabled ~ span:last-child { color: var(--muted); }
+      .optional { font-weight: 400; color: var(--muted); }
+      .thicknessRow { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+      .thicknessRow input { flex: 1; min-width: 0; margin: 0; }
+      .thicknessRow select { width: 64px; margin: 0; }
+      .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; cursor: pointer; }
+      .check input { margin-top: 3px; }
+      .check input:disabled + span { color: var(--muted); }
       .wallRow { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
       .rowHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .rowTitle { font-size: 11px; color: var(--muted); }
@@ -123,6 +130,17 @@
       <button id="pickWall">Measure a wall</button>
       <div class="sub" id="scaleEvidence" style="margin-top:6px"></div>
       <div class="sub" id="scaleReadout" style="margin-top:6px"></div>
+
+      <h2>Wall thickness <span class="optional">(optional)</span></h2>
+      <div class="sub">If you know the wall thicknesses, say so: it stops other line pairs being mistaken for walls.</div>
+      <div id="thicknessRows"></div>
+      <button id="addThickness">Add a thickness</button>
+      <label class="check">
+        <input id="thicknessExhaustive" type="checkbox" disabled />
+        <span>These are the only wall thicknesses in this drawing — reject anything else</span>
+      </label>
+      <div class="sub" id="thicknessReadout" style="margin-top:6px"></div>
+
       <button id="convertScale" disabled>Convert with this scale</button>
 
       <h2>View</h2>

@@ -101,3 +101,48 @@ export function evaluateScale({ walls, dimsOn, evidence }) {
   }
   return result;
 }
+
+/** archiAgent's --wall-thickness bound, and the service's cap on how many. */
+const MAX_THICKNESS_IN = 48;
+const MAX_THICKNESSES = 6;
+const SAME_THICKNESS_IN = 0.01;
+const TO_INCHES = { in: 1, mm: 1 / 25.4, cm: 1 / 2.54 };
+const PLAIN_NUMBER = /^(\d+(\.\d*)?|\.\d+)$/;
+
+/**
+ * The optional wall-thickness rows, as the options a run is sent with.
+ * Converted to inches here and nowhere else; the service and CLI take inches.
+ *
+ * @param {{text: string, unit: "in"|"mm"|"cm"}[]} rows
+ * @param {boolean} exhaustive  "these are the only thicknesses": reject any other
+ * @returns {{inches: number[], problems: {index: number, message: string}[],
+ *            exhaustiveAllowed: boolean, options: object|null}}  options is null when a row is wrong
+ */
+export function evaluateThickness(rows, exhaustive) {
+  const problems = [];
+  const values = [];
+  rows.forEach((r, index) => {
+    const text = (r.text ?? "").trim();
+    if (!text) return;
+    const fail = (why) => problems.push({ index, message: `Thickness ${index + 1}: ${why}.` });
+    if (!PLAIN_NUMBER.test(text)) return fail(`"${text}" is not a number`);
+    const inches = Math.round(Number(text) * TO_INCHES[r.unit ?? "in"] * 1000) / 1000;
+    if (!(inches > 0)) return fail("it must be above zero");
+    if (inches > MAX_THICKNESS_IN) return fail(`it must be at most ${MAX_THICKNESS_IN} in (${(MAX_THICKNESS_IN * 25.4).toFixed(0)} mm)`);
+    values.push(inches);
+  });
+  const inches = [];
+  for (const v of values.sort((a, b) => a - b)) {
+    if (!inches.length || v - inches[inches.length - 1] > SAME_THICKNESS_IN) inches.push(v);
+  }
+  if (inches.length > MAX_THICKNESSES) {
+    problems.push({ index: rows.length - 1, message: `At most ${MAX_THICKNESSES} different thicknesses can be given.` });
+  }
+  const exhaustiveAllowed = inches.length > 0;
+  return {
+    inches, problems, exhaustiveAllowed,
+    options: problems.length ? null
+      : inches.length ? { wall_thickness_in: inches, ...(exhaustive ? { wall_thickness_exhaustive: true } : {}) }
+        : {},
+  };
+}

@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { evaluateScale, wallsAgree } from "../cad/src/scale-model.js";
+import { evaluateScale, evaluateThickness, wallsAgree } from "../cad/src/scale-model.js";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/agreement.json", import.meta.url), "utf8"));
 
@@ -99,4 +99,76 @@ test("with both given, both are sent: the wall sets the scale, the dimensions ar
 test("the header is compared too, and never trusted alone", () => {
   const r = evaluateScale({ walls: [wall("A", 25.4 * 1080, "90ft")], dimsOn: false, evidence: noDimensions });
   assert.ok(r.notes.some((n) => /header/.test(n)), r.notes.join("|"));
+});
+
+// --- wall thickness (optional, typed) ----------------------------------------
+
+const row = (text, unit = "in") => ({ text, unit });
+
+test("no thickness rows send nothing and block nothing", () => {
+  const r = evaluateThickness([], false);
+  assert.deepEqual(r.options, {});
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.exhaustiveAllowed, false);
+});
+
+test("an empty row is ignored, not an error", () => {
+  const r = evaluateThickness([row(""), row("   "), row("9")], false);
+  assert.deepEqual(r.inches, [9]);
+  assert.deepEqual(r.problems, []);
+});
+
+test("inches are the default and are sent as they are, sorted", () => {
+  const r = evaluateThickness([row("9"), row("4.5")], false);
+  assert.deepEqual(r.options, { wall_thickness_in: [4.5, 9] });
+});
+
+test("4.5 in, 114.3 mm and 11.43 cm are one thickness", () => {
+  const r = evaluateThickness([row("4.5"), row("114.3", "mm"), row("11.43", "cm")], false);
+  assert.deepEqual(r.inches, [4.5]);
+  assert.deepEqual(r.problems, []);
+});
+
+test("values within 0.01 in are one thickness; 0.02 in apart are two", () => {
+  assert.deepEqual(evaluateThickness([row("4.5"), row("4.505")], false).inches, [4.5]);
+  assert.deepEqual(evaluateThickness([row("4.5"), row("4.52")], false).inches, [4.5, 4.52]);
+});
+
+test("a row that is not a number, is not above zero, or exceeds 48 in names its row", () => {
+  for (const [text, unit] of [["thick", "in"], ["0", "in"], ["-4", "in"], ["48.5", "in"], ["1220", "mm"], ["1e1", "in"]]) {
+    const r = evaluateThickness([row("9"), row(text, unit)], false);
+    assert.equal(r.problems.length, 1, `${text} ${unit}`);
+    assert.equal(r.problems[0].index, 1);
+    assert.match(r.problems[0].message, /thickness 2/i);
+  }
+});
+
+test("48 in is the largest accepted", () => {
+  assert.deepEqual(evaluateThickness([row("48")], false).inches, [48]);
+  assert.deepEqual(evaluateThickness([row("1219.2", "mm")], false).inches, [48]);
+});
+
+test("a problem row keeps the options out of the way, so Convert cannot send half a set", () => {
+  const r = evaluateThickness([row("9"), row("x")], true);
+  assert.equal(r.options, null);
+});
+
+test("more than six distinct thicknesses is refused with the limit named", () => {
+  const r = evaluateThickness(["1", "2", "3", "4", "5", "6", "7"].map((t) => row(t)), false);
+  assert.match(r.problems[0].message, /at most 6/i);
+});
+
+test("exhaustive is available only once a valid thickness exists, and only sent then", () => {
+  assert.equal(evaluateThickness([row("")], true).exhaustiveAllowed, false);
+  assert.deepEqual(evaluateThickness([row("")], true).options, {});
+  const r = evaluateThickness([row("9")], true);
+  assert.equal(r.exhaustiveAllowed, true);
+  assert.deepEqual(r.options, { wall_thickness_in: [9], wall_thickness_exhaustive: true });
+  assert.deepEqual(evaluateThickness([row("9")], false).options, { wall_thickness_in: [9] });
+});
+
+test("a typo in one row does not take 'only these' away from the valid ones", () => {
+  const r = evaluateThickness([row("9"), row("x")], true);
+  assert.equal(r.exhaustiveAllowed, true);
+  assert.equal(r.options, null);          // but nothing is sent until the row is fixed
 });

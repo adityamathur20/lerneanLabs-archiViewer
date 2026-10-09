@@ -248,6 +248,33 @@ for (const [i, d] of listed.entries()) {
   check("walls: removing the second wall restores Convert", (await page.evaluate(() => window.__cad.scale.walls.length)) === 1
     && !(await page.$eval("#convertScale", (e) => e.disabled)));
 
+  // --- Wall thickness: typed, optional ---------------------------------------
+  const convertOff = () => page.$eval("#convertScale", (e) => e.disabled);
+  check("thickness: 'only these' is disabled while no thickness is given", await page.$eval("#thicknessExhaustive", (e) => e.disabled && !e.checked));
+  await page.click("#addThickness");
+  await page.type(".thicknessRow:nth-child(1) input", "9");
+  await page.click("#addThickness");
+  await page.type(".thicknessRow:nth-child(2) input", "11.43");
+  await page.select(".thicknessRow:nth-child(2) select", "cm");
+  check("thickness: 'only these' becomes available with a valid thickness", await page.$eval("#thicknessExhaustive", (e) => !e.disabled));
+  await page.click("#thicknessExhaustive");
+  await page.click("#addThickness");
+  await page.type(".thicknessRow:nth-child(3) input", "abc");
+  const wrong = await page.$eval("#thicknessReadout", (e) => e.textContent);
+  check("thickness: a wrong row blocks Convert and names itself", (await convertOff()) && /Thickness 3/.test(wrong), wrong);
+  await page.click(".thicknessRow:nth-child(3) button.remove"); await settle(200);
+  check("thickness: removing the wrong row restores Convert", !(await convertOff()));
+  await page.evaluate(() => { window.__cad.cli = ""; });
+  await page.click("#convertScale"); await settle(300);
+  const thicknessCli = await page.evaluate(() => window.__cad.cli ?? "");
+  check("thickness: 9 in and 11.43 cm are sent as 4.5 and 9 inches, with 'only these'",
+    /--wall-thickness 4\.5 9(\s|$)/.test(thicknessCli) && /--wall-thickness-exhaustive/.test(thicknessCli), thicknessCli.slice(0, 120));
+  await page.screenshot({ path: path.join(out, `${i}-thickness.png`) });
+  await page.click(".thicknessRow:nth-child(2) button.remove");
+  await page.click(".thicknessRow:nth-child(1) button.remove"); await settle(200);
+  check("thickness: with every row removed, 'only these' clears and disables itself",
+    await page.$eval("#thicknessExhaustive", (e) => e.disabled && !e.checked));
+
   // --- Pointer / Hand: mlightcad's own selection and pan modes ----------------
   const world = () => page.evaluate(() => { const p = window.__cad.manager.curView.screenToWorld({ x: 400, y: 300 }); return [p.x, p.y]; });
   const dragBy = async (dx, dy) => {

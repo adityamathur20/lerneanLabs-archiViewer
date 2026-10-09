@@ -7,12 +7,18 @@
  * (set-scale.js), never the click. Each wall has its own length field; the
  * panel shows each wall's implied scale and whether several agree, before
  * Convert is pressed.
+ *
+ * Wall thicknesses are optional and typed: rows of [number][unit], plus "these
+ * are the only ones". They ride along with the scale options; a wrong row
+ * blocks Convert and names itself, exactly as a wrong wall length does.
  */
 import { spanOf } from "./set-scale.js";
-import { evaluateScale } from "./scale-model.js";
+import { evaluateScale, evaluateThickness } from "./scale-model.js";
 
 export function createScalePanel({ manager, el, submit, canSubmit, showPointer }) {
   const walls = [];                 // { id, start, end, text }
+  const thicknesses = [];           // { text, unit }
+  let exhaustive = false;
   let evidence = null;
   let dimsOn = false;
   let picking = false;
@@ -53,8 +59,28 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
     setPicking(picking);
   }
 
+  function buildThicknessRows() {
+    el("thicknessRows").replaceChildren(...thicknesses.map((row, index) => {
+      const input = create("input", { type: "text", inputMode: "decimal", value: row.text,
+        placeholder: "e.g. 9", autocomplete: "off", ariaLabel: `Wall thickness ${index + 1}` });
+      input.addEventListener("input", () => { row.text = input.value; update(); });
+      const unit = create("select", { ariaLabel: `Unit of thickness ${index + 1}` },
+        ...["in", "mm", "cm"].map((u) => create("option", { value: u, textContent: u, selected: u === row.unit })));
+      unit.addEventListener("change", () => { row.unit = unit.value; update(); });
+      const remove = create("button", { type: "button", className: "remove", title: "Remove this thickness", textContent: "×" });
+      remove.addEventListener("click", () => { thicknesses.splice(index, 1); buildThicknessRows(); update(); });
+      return create("div", { className: "thicknessRow" }, input, unit, remove);
+    }));
+  }
+
   function update() {
     const r = evaluateScale({ walls, dimsOn, evidence });
+    const t = evaluateThickness(thicknesses, exhaustive);
+    // "Only these" means nothing without a valid thickness, so it clears itself.
+    if (!t.exhaustiveAllowed && exhaustive) { exhaustive = false; return update(); }
+    el("thicknessExhaustive").disabled = !t.exhaustiveAllowed;
+    el("thicknessExhaustive").checked = exhaustive;
+    el("thicknessReadout").textContent = t.problems.map((p) => p.message).join(" ");
     const sw = el("useDims");
     sw.disabled = !r.dimsAvailable;
     sw.checked = r.dimsAvailable && dimsOn;
@@ -71,8 +97,9 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
     else if (r.upf) lines.push(`Scale: ${r.upf.toFixed(4)} units per foot${r.agreement === "agree" ? " — the walls agree" : ""}.`);
     lines.push(...r.notes);
     el("scaleReadout").textContent = lines.join(" ");
-    el("convertScale").disabled = !(r.canConvert && canSubmit());
+    el("convertScale").disabled = !(r.canConvert && !t.problems.length && canSubmit());
     state.result = r;
+    state.thickness = t;
     return r;
   }
 
@@ -90,8 +117,11 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
 
   function reset() {
     walls.length = 0;
+    thicknesses.length = 0;
+    exhaustive = false;
     picking = false;
     buildRows();
+    buildThicknessRows();
     showEvidence(null);
   }
 
@@ -125,11 +155,18 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
 
   el("pickWall").addEventListener("click", () => setPicking(!picking));
   el("useDims").addEventListener("change", () => { dimsOn = el("useDims").checked; update(); });
+  el("addThickness").addEventListener("click", () => {
+    thicknesses.push({ text: "", unit: "in" });
+    buildThicknessRows();
+    update();
+    el("thicknessRows").querySelector(".thicknessRow:last-child input").focus();
+  });
+  el("thicknessExhaustive").addEventListener("change", () => { exhaustive = el("thicknessExhaustive").checked; update(); });
   el("convertScale").addEventListener("click", () => {
     const r = update();
-    if (r.canConvert) submit(r.options);
+    if (r.canConvert && state.thickness.options) submit({ ...r.options, ...state.thickness.options });
   });
 
-  const state = { showEvidence, reset, update, walls, result: null };
+  const state = { showEvidence, reset, update, walls, result: null, thickness: null };
   return state;
 }

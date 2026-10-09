@@ -215,6 +215,8 @@ const scale = createScalePanel({
       // The dev server has no jobs; give the flags the CLI takes.
       const flags = (options.scale_from_wall ?? []).map((w) => `--scale-from-wall ${w.x1} ${w.y1} ${w.x2} ${w.y2} "${w.length}"`);
       if (options.trust_extracted_scale) flags.push("--trust-extracted-scale");
+      if (options.wall_thickness_in) flags.push(`--wall-thickness ${options.wall_thickness_in.join(" ")}`);
+      if (options.wall_thickness_exhaustive) flags.push("--wall-thickness-exhaustive");
       state.cli = `CLI: ${flags.join(" ")}`;
       el("scaleReadout").textContent = state.cli;
       return;
