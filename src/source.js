@@ -220,9 +220,13 @@ export function createDiskSource({ fetchImpl = globalThis.fetch } = {}) {
       return drawings.map((d) => ({ id: d.path, name: d.name, label: `${d.name} — ${d.path}`, hasModel: d.hasModel }));
     },
 
-    // The dev server has no jobs: the scale tool there prints the CLI flags.
-    async fetchScaleEvidence() {
-      return null;
+    // <name>.scale.json beside the drawing, as `archiagent --prepare` writes it.
+    // The dev server has no jobs, so the panel there prints the CLI flags.
+    async fetchScaleEvidence(id) {
+      const response = await fetchImpl(`/api/scale?path=${encodeURIComponent(id)}`);
+      if (response.status === 404) return null;
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return response.json();
     },
 
     async fetchDxf(id) {

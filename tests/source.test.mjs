@@ -315,3 +315,17 @@ test("scale evidence is plan.scale.json, and its absence is not an error", async
   assert.deepEqual(await source.fetchScaleEvidence("HAS"), evidence);
   assert.equal(await source.fetchScaleEvidence("NONE"), null);
 });
+
+test("the dev server serves a drawing's scale evidence, and its absence is not an error", async () => {
+  const seen = [];
+  const evidence = { schema_version: 1, extracted: { units_per_foot: 12, support: 3 } };
+  const source = createDiskSource({
+    fetchImpl: async (url) => {
+      seen.push(url);
+      return url.includes("a%2Fplan.dxf") ? jsonResponse(evidence) : jsonResponse({ error: "none" }, 404);
+    },
+  });
+  assert.deepEqual(await source.fetchScaleEvidence("a/plan.dxf"), evidence);
+  assert.equal(await source.fetchScaleEvidence("b/other.dxf"), null);
+  assert.equal(seen[0], "/api/scale?path=a%2Fplan.dxf");
+});

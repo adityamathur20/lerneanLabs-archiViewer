@@ -125,6 +125,23 @@ function archiagentOutput() {
         }
       });
 
+      server.middlewares.use("/api/scale", async (req, res) => {
+        const requested = new URL(req.url, "http://localhost").searchParams.get("path");
+        const resolved = resolveWithinRoot(OUT_ROOT, requested?.replace(/\.dxf$/i, ".scale.json"), ".scale.json");
+        res.setHeader("content-type", "application/json");
+        if (!resolved) {
+          res.statusCode = 403;
+          res.end(JSON.stringify({ error: "only .scale.json files inside ARCHIAGENT_OUT are served" }));
+          return;
+        }
+        try {
+          res.end(await readFile(resolved));
+        } catch {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: "no scale evidence for this drawing" }));
+        }
+      });
+
       server.middlewares.use("/api/frag", async (req, res) => {
         const requested = new URL(req.url, "http://localhost").searchParams.get("path");
         const resolved = resolveWithinRoot(OUT_ROOT, requested, ".frag");

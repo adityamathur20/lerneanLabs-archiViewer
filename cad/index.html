@@ -38,6 +38,33 @@
         font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
         color: var(--muted); margin: 20px 0 8px; font-weight: 600;
       }
+      .switch { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+      .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .switch .track {
+        width: 34px; height: 18px; border-radius: 9px; background: #3a404a; position: relative;
+        flex: none; transition: background .15s;
+      }
+      .switch .track::after {
+        content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px;
+        border-radius: 50%; background: var(--text); transition: transform .15s;
+      }
+      .switch input:checked + .track { background: var(--accent); }
+      .switch input:checked + .track::after { transform: translateX(16px); }
+      .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .switch input:disabled + .track { opacity: .4; }
+      .switch input:disabled ~ span:last-child { color: var(--muted); }
+      .wallRow { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+      .rowHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .rowTitle { font-size: 11px; color: var(--muted); }
+      button.remove { width: 24px; height: 24px; padding: 0; margin: 0; line-height: 1; }
+      #toolstrip {
+        position: absolute; right: 12px; top: 70px; z-index: 5;
+        display: flex; flex-direction: column; gap: 6px; padding: 6px;
+        background: rgba(28, 31, 37, .92); border: 1px solid var(--line); border-radius: 8px;
+      }
+      #toolstrip button { width: 36px; height: 36px; padding: 0; margin: 0; display: grid; place-items: center; }
+      #toolstrip button.active { border-color: var(--accent); background: #2b3350; }
+      #toolstrip svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
       input[type="text"] {
         display: block; width: 100%; margin-top: 6px; background: #23272f; color: var(--text);
         border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit;
@@ -86,12 +113,17 @@
       </div>
 
       <h2>Scale</h2>
-      <div class="sub" id="scaleEvidence" style="margin-bottom:6px"></div>
-      <button id="useDims" hidden>Use the drawing's dimensions</button>
+      <label class="switch">
+        <input id="useDims" type="checkbox" role="switch" disabled />
+        <span class="track"></span>
+        <span>Use the drawing's dimensions</span>
+      </label>
+      <div class="sub" id="dimsReason" style="margin-top:4px"></div>
+      <div id="wallRows"></div>
       <button id="pickWall">Measure a wall</button>
-      <input id="wallLength" type="text" placeholder="its real length: 10'-6&quot;, 12ft, 3.05m" autocomplete="off" />
+      <div class="sub" id="scaleEvidence" style="margin-top:6px"></div>
       <div class="sub" id="scaleReadout" style="margin-top:6px"></div>
-      <button id="useWall" disabled>Convert with this scale</button>
+      <button id="convertScale" disabled>Convert with this scale</button>
 
       <h2>View</h2>
       <div class="tools">
@@ -113,6 +145,14 @@
     </aside>
     <main>
       <div id="cad"></div>
+      <div id="toolstrip" role="toolbar" aria-label="Mouse tool">
+        <button id="toolPointer" class="active" title="Pointer: select, measure and pick walls" aria-label="Pointer" aria-pressed="true">
+          <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z"/></svg>
+        </button>
+        <button id="toolHand" title="Hand: drag to pan" aria-label="Hand" aria-pressed="false">
+          <svg viewBox="0 0 24 24"><path d="M8 13V6a1.5 1.5 0 013 0v5m0-6.5a1.5 1.5 0 013 0V11m0-5a1.5 1.5 0 013 0v7.5c0 4-2.5 6.5-6 6.5-2.6 0-4-1.2-5.5-3.4L4.3 14a1.5 1.5 0 012.4-1.7L8 14"/></svg>
+        </button>
+      </div>
       <div id="status">loading…</div>
     </main>
     <script type="module" src="./src/main.js"></script>
