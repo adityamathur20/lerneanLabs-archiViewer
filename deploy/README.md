@@ -250,6 +250,9 @@ curl -fsS -X PUT --upload-file plan.dxf -H "content-length: ${SIZE}" "$URL"
 # archiAgent will not guess a scale. Either trust the drawing's own
 # dimensions, or assert one wall in source coordinates:
 #   {"scale_from_wall": [{"x1": 0, "y1": 0, "x2": 120, "y2": 0, "length": "10ft"}]}
+# Optionally state the wall thicknesses, in inches (1-6 values, above 0 up to 48),
+# and whether that set is complete -- anything else is then not a wall:
+#   {"wall_thickness_in": [4.5, 9], "wall_thickness_exhaustive": true}
 curl -fsS -X POST "https://api.planto3d.in/v1/jobs/${JOB}/start" \
   -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
   -d '{"trust_extracted_scale": true}'

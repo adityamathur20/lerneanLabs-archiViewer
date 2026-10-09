@@ -42,6 +42,12 @@ All routes require `Authorization: Bearer <api key>`.
 | GET | `/v1/jobs/{id}/artifacts/{name}` | 302 to a presigned URL |
 | DELETE | `/v1/jobs/{id}` | delete the job and its whole prefix |
 
+`start` and `retry` take the run's options. Scale is `trust_extracted_scale` or
+`scale_from_wall`. Wall thicknesses are optional: `wall_thickness_in` (1–6
+values in inches, above 0 up to 48) replaces the set archiAgent would infer from
+the drawing, and `wall_thickness_exhaustive: true` says the set is complete, so a
+candidate wall matching none of it is rejected. Exhaustive without a set is a 422.
+
 Artifacts live under `{tenant_id}/{job_id}/`, and authorization is a single
 prefix check in `auth.owned_job` — which returns **404, never 403**, for another
 tenant's job, because a 403 would confirm that the job exists.
