@@ -12,11 +12,12 @@
 import {
   AcApDocManager,
   AcApSettingManager,
+  AcEdViewMode,
   MTEXT_RENDERER_WORKER_FILE,
   collectMeasurementRecords,
 } from "@mlightcad/cad-simple-viewer";
 import { createApiSource, createDiskSource, SourceError } from "../../src/source.js";
-import { createScaleTool } from "./set-scale.js";
+import { createScalePanel } from "./scale-panel.js";
 
 // Same key and same API as the 3D view: one sign-in for both.
 const API_BASE = import.meta.env?.VITE_API_BASE ?? "";
@@ -58,7 +59,9 @@ function fail(message, detail = "") {
 // any other mlightcad app on the origin. The command line stays: measuring
 // prompts through it.
 AcApSettingManager.configure({ storageKey: "planto3d.cad-viewer" });
-AcApSettingManager.instance.apply({ isShowStats: false }, { persist: false });
+// The command line has no use here (measuring prompts for its points on the
+// canvas), so it is hidden.
+AcApSettingManager.instance.apply({ isShowStats: false, isShowCommandLine: false }, { persist: false });
 
 // The app's own base ("/cad/"), not the page URL: served as /cad (no slash),
 // "." would resolve to "/", and the fonts and the MTEXT worker 404 silently,
@@ -100,7 +103,7 @@ function whenProgressHidden(timeoutMs) {
   });
 }
 
-const TOOLS = ["fit", "measure", "clearMeasures", "allOn", "allOff", "pickWall"];
+const TOOLS = ["fit", "measure", "clearMeasures", "allOn", "allOff", "pickWall", "toolPointer", "toolHand"];
 function setToolsEnabled(enabled) {
   for (const id of TOOLS) el(id).disabled = !enabled;
 }
@@ -177,29 +180,54 @@ function convertible(drawing) {
   return source.kind === "api" && ["ready", "succeeded", "failed"].includes(drawing?.status);
 }
 
-const scale = createScaleTool({
+// --- mouse tool: mlightcad's own selection and pan modes ----------------------
+
+/** Reflects the view's real mode on the strip, so it can never disagree with it. */
+function syncTool() {
+  const hand = manager.curView?.mode === AcEdViewMode.PAN;
+  el("toolHand").classList.toggle("active", hand);
+  el("toolPointer").classList.toggle("active", !hand);
+  el("toolHand").setAttribute("aria-pressed", String(hand));
+  el("toolPointer").setAttribute("aria-pressed", String(!hand));
+}
+// executeCommandString awaits the command; sendStringToExecute returns first,
+// so reading the mode right after it showed the PREVIOUS tool as active.
+async function pointer() {
+  await manager.executeCommandString("select");
+  syncTool();
+}
+el("toolPointer").addEventListener("click", pointer);
+el("toolHand").addEventListener("click", async () => {
+  await manager.executeCommandString("pan");
+  syncTool();
+});
+// A command (measure, a pick) can change the mode itself.
+el("cad").addEventListener("pointerup", () => setTimeout(syncTool, 0), true);
+state.syncTool = syncTool;
+
+const scale = createScalePanel({
   manager,
   el,
+  showPointer: pointer,
   canSubmit: () => source.kind !== "api" || convertible(current),
   async submit(options) {
     if (source.kind !== "api") {
       // The dev server has no jobs; give the flags the CLI takes.
-      const w = options.scale_from_wall?.[0];
-      el("scaleReadout").textContent = w
-        ? `CLI: --scale-from-wall ${w.x1} ${w.y1} ${w.x2} ${w.y2} "${w.length}"`
-        : "CLI: --trust-extracted-scale";
-      state.cli = el("scaleReadout").textContent;
+      const flags = (options.scale_from_wall ?? []).map((w) => `--scale-from-wall ${w.x1} ${w.y1} ${w.x2} ${w.y2} "${w.length}"`);
+      if (options.trust_extracted_scale) flags.push("--trust-extracted-scale");
+      state.cli = `CLI: ${flags.join(" ")}`;
+      el("scaleReadout").textContent = state.cli;
       return;
     }
-    el("useWall").disabled = el("useDims").disabled = true;
+    el("convertScale").disabled = el("useDims").disabled = true;
     try {
       const id = current.status === "ready"
         ? await source.startJob(current.id, options)
         : await source.retryJob(current.id, options);
       location.href = `/?wait=${encodeURIComponent(id)}`;
     } catch (error) {
+      scale.update();
       el("scaleReadout").textContent = `Could not start the conversion: ${error.message}`;
-      scale.render();
     }
   },
 });
@@ -261,8 +289,10 @@ async function show(id, name) {
   mark("overlay gone");
   manager.curView.zoomToFitDrawing();
   renderLayers();
+  scale.reset();
   scale.showEvidence(await source.fetchScaleEvidence(id).catch(() => null));
   setToolsEnabled(true);
+  syncTool();
   say("");
   state.phase = "opened";
   state.name = name;

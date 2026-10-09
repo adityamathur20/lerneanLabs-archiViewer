@@ -73,6 +73,15 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ root: "check", drawings: listed.map(({ file, ...d }) => d) }));
     return;
   }
+  if (url.pathname === "/api/scale") {
+    // <name>.scale.json beside the drawing, as `archiagent --prepare` writes it.
+    const hit = listed.find((d) => d.path === url.searchParams.get("path"));
+    const evidence = hit && hit.file.replace(/\.dxf$/i, ".scale.json");
+    if (!evidence || !existsSync(evidence)) { res.writeHead(404, { "content-type": "application/json" }); res.end("{}"); return; }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(readFileSync(evidence));
+    return;
+  }
   if (url.pathname === "/api/drawing") {
     const hit = listed.find((d) => d.path === url.searchParams.get("path"));
     res.writeHead(hit ? 200 : 404, { "content-type": "application/octet-stream" });
@@ -178,44 +187,94 @@ for (const [i, d] of listed.entries()) {
   await page.screenshot({ path: path.join(out, `${i}-measured.png`) });
   await page.click("#clearMeasures");
 
-  // Set scale: pick the longest visible LINE at its midpoint; the asserted
-  // span must be that entity's own endpoints, not the click.
-  const target = await page.evaluate(() => {
-    const m = window.__cad.manager, view = m.curView;
-    const box = document.getElementById("cad").getBoundingClientRect();
-    let best = null;
+  // --- the Scale panel -------------------------------------------------------
+  const evidenceFile = d.file.replace(/\.dxf$/i, ".scale.json");
+  const evidence = existsSync(evidenceFile) ? JSON.parse(readFileSync(evidenceFile, "utf8")) : null;
+  const sw = await page.$eval("#useDims", (e) => ({ disabled: e.disabled, checked: e.checked }));
+  const reason = await page.$eval("#dimsReason", (e) => e.textContent);
+  if (evidence?.extracted) {
+    check("switch: dimensions establish a scale, so it is enabled and on", !sw.disabled && sw.checked, reason);
+    check("switch: Convert is available with no wall measured", !(await page.$eval("#convertScale", (e) => e.disabled)));
+  } else {
+    check("switch: no usable dimensions, so it is off and disabled, with the reason", sw.disabled && !sw.checked && reason.length > 10, reason);
+    check("switch: Convert is not available with nothing chosen", await page.$eval("#convertScale", (e) => e.disabled));
+  }
+
+  // Pick the two longest visible LINEs, each at its midpoint.
+  const targets = await page.evaluate(() => {
+    const m = window.__cad.manager, v = m.curView, box = document.getElementById("cad").getBoundingClientRect(); const found = [];
     for (const e of m.curDocument.database.tables.blockTable.modelSpace.newIterator()) {
-      if (e.dxfTypeName !== "LINE") continue;
-      const a = e.startPoint, b = e.endPoint;
-      const mid = view.worldToScreen({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (e.dxfTypeName !== "LINE") continue; const a = e.startPoint, b = e.endPoint;
+      const mid = v.worldToScreen({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
       if (mid.x < 20 || mid.y < 20 || mid.x > box.width - 20 || mid.y > box.height - 60) continue;
-      if (!best || len > best.len) best = { id: e.objectId, len, a: [a.x, a.y], b: [b.x, b.y], mid, left: box.left, top: box.top };
+      found.push({ id: e.objectId, len: Math.hypot(b.x - a.x, b.y - a.y), mid, left: box.left, top: box.top });
     }
-    return best;
+    found.sort((p, q) => q.len - p.len);
+    const chosen = [];
+    for (const f of found) if (chosen.every((c) => Math.hypot(c.mid.x - f.mid.x, c.mid.y - f.mid.y) > 30)) chosen.push(f);
+    return chosen.slice(0, 2);
   });
-  if (!target) {
-    check("set scale: a wall line to pick", false, "no visible LINE");
-    continue;
+  if (targets.length < 2) { check("walls: two lines to pick", false, `${targets.length} found`); continue; }
+  for (const [n, t] of targets.entries()) {
+    await page.click("#pickWall");
+    await page.mouse.click(t.left + t.mid.x, t.top + t.mid.y);
+    await settle(400);
+    check(`walls: wall ${n + 1} is picked and listed`, (await page.evaluate(() => window.__cad.scale.walls.length)) === n + 1);
+    // The length comes from the wall actually picked: a click can land on a
+    // different overlapping entity than the one aimed at.
+    const span = await page.evaluate((k) => { const w = window.__cad.scale.walls[k]; return Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y); }, n);
+    await page.type(`.wallRow:nth-child(${n + 1}) .wallLength`, `${(span / 12).toFixed(4)}ft`);
   }
-  await page.click("#pickWall");
-  await page.mouse.click(target.left + target.mid.x + 0.7, target.top + target.mid.y - 0.4);
-  await settle(500);
-  const picked = await page.evaluate(() => window.__cad.scale.picked);
-  check("set scale: a click picks the wall line under it", picked?.id !== undefined, picked ? `${picked.id}` : "nothing picked");
-  if (!picked) continue;
-  await page.type("#wallLength", "12ft");
-  await page.click("#useWall");
-  await settle(300);
+  const first = await page.evaluate(() => ({ ids: window.__cad.scale.walls.map((w) => w.id), r: window.__cad.scale.result }));
+  check("walls: two different lines were picked", new Set(first.ids).size === 2, first.ids.join(","));
+  check("walls: they agree, and Convert is available", first.r.agreement === "agree" && !(await page.$eval("#convertScale", (e) => e.disabled)),
+    await page.$eval("#scaleReadout", (e) => e.textContent));
+  await page.screenshot({ path: path.join(out, `${i}-two-walls.png`) });
+
+  await page.click("#convertScale"); await settle(300);
   const cli = await page.evaluate(() => window.__cad.cli ?? "");
-  const nums = cli.match(/--scale-from-wall (\S+) (\S+) (\S+) (\S+) "12ft"/)?.slice(1).map(Number);
-  const pickedEnds = [picked.start.x, picked.start.y, picked.end.x, picked.end.y];
-  check("set scale: the asserted span is the entity's own vertices", Boolean(nums) && nums.every((v, k) => v === pickedEnds[k]),
-    cli.slice(0, 90));
-  if (picked.id === target.id) {
-    check("set scale: ...and they are that LINE's endpoints", nums?.join() === [...target.a, ...target.b].join());
-  }
-  await page.screenshot({ path: path.join(out, `${i}-scale.png`) });
+  const spans = [...cli.matchAll(/--scale-from-wall (\S+) (\S+) (\S+) (\S+) "/g)].map((m) => m.slice(1).map(Number));
+  const picked = await page.evaluate(() => window.__cad.scale.walls.map((w) => [w.start.x, w.start.y, w.end.x, w.end.y]));
+  check("walls: both spans sent are the entities' own vertices", spans.length === 2 && spans.every((s, k) => s.join() === picked[k].join()), cli.slice(0, 80));
+
+  // A second wall that disagrees must stop Convert before the run does.
+  const second = await page.evaluate(() => { const w = window.__cad.scale.walls[1]; return Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y); });
+  await page.$eval(".wallRow:nth-child(2) .wallLength", (e) => { e.value = ""; });
+  await page.type(".wallRow:nth-child(2) .wallLength", `${(second / 12 / 2).toFixed(4)}ft`);
+  const disagree = await page.evaluate(() => window.__cad.scale.result);
+  check("walls: a disagreeing second length blocks Convert and says why",
+    disagree.agreement === "disagree" && await page.$eval("#convertScale", (e) => e.disabled), disagree.message.slice(0, 70));
+  await page.click(".wallRow:nth-child(2) button.remove"); await settle(200);
+  check("walls: removing the second wall restores Convert", (await page.evaluate(() => window.__cad.scale.walls.length)) === 1
+    && !(await page.$eval("#convertScale", (e) => e.disabled)));
+
+  // --- Pointer / Hand: mlightcad's own selection and pan modes ----------------
+  const world = () => page.evaluate(() => { const p = window.__cad.manager.curView.screenToWorld({ x: 400, y: 300 }); return [p.x, p.y]; });
+  const dragBy = async (dx, dy) => {
+    const b = await page.$eval("#cad", (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top]; });
+    await page.mouse.move(b[0] + 420, b[1] + 320); await page.mouse.down();
+    await page.mouse.move(b[0] + 420 + dx / 2, b[1] + 320 + dy / 2, { steps: 4 }); await page.mouse.move(b[0] + 420 + dx, b[1] + 320 + dy, { steps: 4 });
+    await page.mouse.up(); await settle(500);
+  };
+  const strip = await page.evaluate(() => { const r = document.getElementById("toolstrip").getBoundingClientRect(), m = document.querySelector("main").getBoundingClientRect(); return { right: m.right - r.right, top: r.top }; });
+  check("tools: the strip sits on the right edge of the drawing", strip.right < 40 && strip.right >= 0, `${Math.round(strip.right)}px from the edge`);
+  await page.click("#toolHand"); await settle(300);
+  check("tools: Hand sets mlightcad's PAN mode", (await page.evaluate(() => window.__cad.manager.curView.mode)) === 1
+    && await page.$eval("#toolHand", (e) => e.classList.contains("active")));
+  const before = await world(); await dragBy(120, 60); const after = await world();
+  check("tools: dragging with Hand pans the view", Math.hypot(after[0] - before[0], after[1] - before[1]) > 1e-6, `moved ${Math.round(Math.hypot(after[0] - before[0], after[1] - before[1]))} units`);
+  await page.click("#toolPointer"); await settle(300);
+  check("tools: Pointer sets SELECTION mode", (await page.evaluate(() => window.__cad.manager.curView.mode)) === 0
+    && await page.$eval("#toolPointer", (e) => e.classList.contains("active")));
+  const b2 = await world(); await dragBy(120, 60); const a2 = await world();
+  check("tools: dragging with Pointer does not pan", Math.hypot(a2[0] - b2[0], a2[1] - b2[1]) < 1e-6);
+  await page.click("#measure"); await settle(300);
+  check("tools: starting a measurement leaves the strip on Pointer", await page.$eval("#toolPointer", (e) => e.classList.contains("active")));
+  await page.keyboard.press("Escape"); await settle(200);
+
+  const commandLine = await page.evaluate(() => [...document.querySelectorAll("input,textarea")].filter((e) => /type command/i.test(e.placeholder) && e.offsetParent).length);
+  check("the command-line box is gone", commandLine === 0);
+  await page.screenshot({ path: path.join(out, `${i}-panel.png`) });
 }
 
 const csp_ = await page.evaluate(() => window.__csp);

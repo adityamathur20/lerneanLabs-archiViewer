@@ -1,0 +1,117 @@
+{
+  "generated_by": "archiagent.scale.verify.scale_from_reviewed",
+  "tolerance_in": 2.0,
+  "cases": {
+    "one wall": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        }
+      ],
+      "scale": 12.0
+    },
+    "two agreeing": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        },
+        {
+          "span": 1440,
+          "feet": 120
+        }
+      ],
+      "scale": 12.0
+    },
+    "two within 2in": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        },
+        {
+          "span": 1440,
+          "feet": 120.1
+        }
+      ],
+      "scale": 12.0
+    },
+    "two disagreeing": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        },
+        {
+          "span": 1440,
+          "feet": 100
+        }
+      ],
+      "scale": null,
+      "refused": "asserted wall lengths disagree on scale; review the lengths or the units"
+    },
+    "three, one outlier": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        },
+        {
+          "span": 1440,
+          "feet": 120
+        },
+        {
+          "span": 600,
+          "feet": 40
+        }
+      ],
+      "scale": null,
+      "refused": "asserted wall lengths disagree on scale; review the lengths or the units"
+    },
+    "three agreeing, noisy": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        },
+        {
+          "span": 1441,
+          "feet": 120
+        },
+        {
+          "span": 600.5,
+          "feet": 50
+        }
+      ],
+      "scale": 12.008333333333333
+    },
+    "mm read as inches": {
+      "walls": [
+        {
+          "span": 1080,
+          "feet": 90
+        },
+        {
+          "span": 27432,
+          "feet": 90
+        }
+      ],
+      "scale": null,
+      "refused": "asserted wall lengths disagree on scale; review the lengths or the units"
+    },
+    "even count median": {
+      "walls": [
+        {
+          "span": 1000,
+          "feet": 80
+        },
+        {
+          "span": 1200,
+          "feet": 96.05
+        }
+      ],
+      "scale": 12.5
+    }
+  }
+}
