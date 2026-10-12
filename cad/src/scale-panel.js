@@ -18,7 +18,7 @@ import { evaluateScale, evaluateThickness } from "./scale-model.js";
 export function createScalePanel({ manager, el, submit, canSubmit, showPointer }) {
   const walls = [];                 // { id, start, end, text }
   const thicknesses = [];           // { text, unit }
-  let exhaustive = false;
+  let exhaustiveWanted = true;      // 'only these' is on unless the user unticks it
   let evidence = null;
   let dimsOn = false;
   let picking = false;
@@ -75,11 +75,13 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
 
   function update() {
     const r = evaluateScale({ walls, dimsOn, evidence });
-    const t = evaluateThickness(thicknesses, exhaustive);
-    // "Only these" means nothing without a valid thickness, so it clears itself.
-    if (!t.exhaustiveAllowed && exhaustive) { exhaustive = false; return update(); }
-    el("thicknessExhaustive").disabled = !t.exhaustiveAllowed;
-    el("thicknessExhaustive").checked = exhaustive;
+    // "Only these" needs a valid thickness to mean anything. The user's choice is
+    // kept apart from what applies, so removing every row and adding one again
+    // brings back the choice they made, not a forgotten one.
+    const allowed = evaluateThickness(thicknesses, false).exhaustiveAllowed;
+    const t = evaluateThickness(thicknesses, exhaustiveWanted && allowed);
+    el("thicknessExhaustive").disabled = !allowed;
+    el("thicknessExhaustive").checked = exhaustiveWanted && allowed;
     el("thicknessReadout").textContent = t.problems.map((p) => p.message).join(" ");
     const sw = el("useDims");
     sw.disabled = !r.dimsAvailable;
@@ -118,7 +120,7 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
   function reset() {
     walls.length = 0;
     thicknesses.length = 0;
-    exhaustive = false;
+    exhaustiveWanted = true;
     picking = false;
     buildRows();
     buildThicknessRows();
@@ -161,7 +163,7 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
     update();
     el("thicknessRows").querySelector(".thicknessRow:last-child input").focus();
   });
-  el("thicknessExhaustive").addEventListener("change", () => { exhaustive = el("thicknessExhaustive").checked; update(); });
+  el("thicknessExhaustive").addEventListener("change", () => { exhaustiveWanted = el("thicknessExhaustive").checked; update(); });
   el("convertScale").addEventListener("click", () => {
     const r = update();
     if (r.canConvert && state.thickness.options) submit({ ...r.options, ...state.thickness.options });

@@ -257,7 +257,7 @@ for (const [i, d] of listed.entries()) {
   await page.type(".thicknessRow:nth-child(2) input", "11.43");
   await page.select(".thicknessRow:nth-child(2) select", "cm");
   check("thickness: 'only these' becomes available with a valid thickness", await page.$eval("#thicknessExhaustive", (e) => !e.disabled));
-  await page.click("#thicknessExhaustive");
+  check("thickness: 'only these' is ticked by default once a thickness exists", await page.$eval("#thicknessExhaustive", (e) => e.checked));
   await page.click("#addThickness");
   await page.type(".thicknessRow:nth-child(3) input", "abc");
   const wrong = await page.$eval("#thicknessReadout", (e) => e.textContent);
@@ -270,10 +270,21 @@ for (const [i, d] of listed.entries()) {
   check("thickness: 9 in and 11.43 cm are sent as 4.5 and 9 inches, with 'only these'",
     /--wall-thickness 4\.5 9(\s|$)/.test(thicknessCli) && /--wall-thickness-exhaustive/.test(thicknessCli), thicknessCli.slice(0, 120));
   await page.screenshot({ path: path.join(out, `${i}-thickness.png`) });
+  await page.click("#thicknessExhaustive");     // the user switches it off
+  await page.evaluate(() => { window.__cad.cli = ""; });
+  await page.click("#convertScale"); await settle(300);
+  const untickedCli = await page.evaluate(() => window.__cad.cli ?? "");
+  check("thickness: unticked, the thicknesses are sent without 'only these'",
+    /--wall-thickness 4\.5 9(\s|$)/.test(untickedCli) && !/--wall-thickness-exhaustive/.test(untickedCli), untickedCli.slice(0, 120));
+  await page.click("#thicknessExhaustive");     // back on, as it is by default
   await page.click(".thicknessRow:nth-child(2) button.remove");
   await page.click(".thicknessRow:nth-child(1) button.remove"); await settle(200);
-  check("thickness: with every row removed, 'only these' clears and disables itself",
+  check("thickness: with every row removed, 'only these' shows off and disabled",
     await page.$eval("#thicknessExhaustive", (e) => e.disabled && !e.checked));
+  await page.click("#addThickness");
+  await page.type(".thicknessRow:nth-child(1) input", "9");
+  check("thickness: adding one again brings the default back on", await page.$eval("#thicknessExhaustive", (e) => !e.disabled && e.checked));
+  await page.click(".thicknessRow:nth-child(1) button.remove"); await settle(200);
 
   // --- Pointer / Hand: mlightcad's own selection and pan modes ----------------
   const world = () => page.evaluate(() => { const p = window.__cad.manager.curView.screenToWorld({ x: 400, y: 300 }); return [p.x, p.y]; });
