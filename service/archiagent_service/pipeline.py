@@ -32,6 +32,12 @@ class CliResult:
     duration_ms: int
 
 
+def _plain(value: float) -> str:
+    """A decimal that can never be read as a flag or written as 1e-05."""
+    text = repr(float(value))
+    return format(float(value), ".10f").rstrip("0").rstrip(".") if "e" in text.lower() else text
+
+
 def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> list[str]:
     # Exactly one input flag is accepted. DWG conversion happens inside the
     # CLI (Tier 1), so the service only names the flag.
@@ -45,6 +51,10 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
         command.append("--trust-extracted-scale")
     for wall in options.get("scale_from_wall") or ():
         command += ["--scale-from-wall", *(str(wall[k]) for k in ("x1", "y1", "x2", "y2", "length"))]
+    if thicknesses := options.get("wall_thickness_in"):
+        command += ["--wall-thickness", *(_plain(v) for v in thicknesses)]
+        if options.get("wall_thickness_exhaustive"):
+            command.append("--wall-thickness-exhaustive")
     if (height := options.get("height_ft")) is not None:
         command += ["--height", str(height)]
     if walls := options.get("walls"):

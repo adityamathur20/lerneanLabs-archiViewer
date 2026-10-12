@@ -86,3 +86,37 @@ def test_a_stored_units_per_foot_is_never_forwarded():
     queued before this change may still carry the option."""
     command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {"units_per_foot": 12})
     assert "--units-per-foot" not in command
+
+
+# --- declared wall thickness -------------------------------------------------
+
+def test_a_declared_thickness_set_becomes_plain_decimal_arguments():
+    command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"),
+                            {"wall_thickness_in": [4.5, 9.0], "wall_thickness_exhaustive": True})
+    at = command.index("--wall-thickness")
+    assert command[at + 1:at + 3] == ["4.5", "9.0"]
+    assert "--wall-thickness-exhaustive" in command
+
+
+def test_no_thickness_option_adds_no_thickness_argument():
+    command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {"wall_thickness_exhaustive": False})
+    assert not [a for a in command if a.startswith("--wall-thickness")]
+
+
+def test_a_thickness_value_is_never_written_in_exponent_form():
+    # str(1e-05) is "1e-05"; argparse type=float would read it, but "1e-05" next
+    # to a flag-looking string is exactly the ambiguity plain decimals avoid.
+    command = build_command(Path("/p"), Path("/w/s.dxf"), Path("/w"), {"wall_thickness_in": [0.00001]})
+    assert "e" not in command[command.index("--wall-thickness") + 1].lower()
+
+
+def test_archiagent_itself_parses_the_thickness_arguments_the_service_emits():
+    import subprocess
+    from archiagent_service.config import get_settings
+    command = build_command(get_settings().archiagent_python, Path("/w/s.dxf"), Path("/w"),
+                            {"wall_thickness_in": [4.5, 9.0], "wall_thickness_exhaustive": True})
+    probe = ("import sys; from archiagent.cli import _parser, _declared_thickness_ft; "
+             "a = _parser().parse_args(sys.argv[1:]); print(_declared_thickness_ft(a), a.wall_thickness_exhaustive)")
+    done = subprocess.run([command[0], "-c", probe, *command[3:]], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == f"({4.5 / 12}, {9 / 12}) True"

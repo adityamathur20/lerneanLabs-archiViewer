@@ -111,6 +111,24 @@ def test_a_ready_job_starts_with_the_chosen_scale(client, pg_session, alice, s3,
     assert queue.calls == [("archiagent_service.worker.run_job", (job.id,))]
 
 
+def test_a_declared_thickness_set_is_stored_with_the_started_job(client, pg_session, alice, s3, queue):
+    tenant, key = alice
+    job = _job(pg_session, tenant, "ready", s3=s3, artifacts=["plan.dxf", "plan.scale.json"])
+    body = {"trust_extracted_scale": True, "wall_thickness_in": [4.5, 9], "wall_thickness_exhaustive": True}
+    assert client.post(f"/v1/jobs/{job.id}/start", json=body, headers=_auth(key)).status_code == 200
+    pg_session.refresh(job)
+    assert job.options["wall_thickness_in"] == [4.5, 9.0]
+    assert job.options["wall_thickness_exhaustive"] is True
+
+
+def test_an_exhaustive_flag_with_no_set_is_refused_before_anything_is_queued(client, pg_session, alice, s3, queue):
+    tenant, key = alice
+    job = _job(pg_session, tenant, "ready", s3=s3, artifacts=["plan.dxf", "plan.scale.json"])
+    body = {"trust_extracted_scale": True, "wall_thickness_exhaustive": True}
+    assert client.post(f"/v1/jobs/{job.id}/start", json=body, headers=_auth(key)).status_code == 422
+    assert queue.calls == []
+
+
 def test_a_preparing_job_cannot_start(client, pg_session, alice, s3, queue):
     tenant, key = alice
     job = _job(pg_session, tenant, "preparing", s3=s3)
@@ -142,6 +160,17 @@ def test_retry_builds_a_new_job_from_the_stored_drawing(client, pg_session, alic
     assert queue.calls == [("archiagent_service.worker.run_job", (new.id,))]
     pg_session.refresh(old)
     assert old.status == "failed"
+
+
+def test_retry_carries_the_declared_thickness_set(client, pg_session, alice, s3, queue):
+    tenant, key = alice
+    old = _job(pg_session, tenant, "failed", s3=s3, artifacts=["plan.dxf", "plan.scale.json"])
+    s3.put(f"{old.prefix}plan.dxf", b"0\nSECTION\n")
+    s3.put(f"{old.prefix}plan.scale.json", json.dumps(SCALE).encode())
+    body = {"trust_extracted_scale": True, "wall_thickness_in": [9]}
+    response = client.post(f"/v1/jobs/{old.id}/retry", json=body, headers=_auth(key))
+    assert response.status_code == 200, response.text
+    assert pg_session.get(Job, response.json()["job_id"]).options["wall_thickness_in"] == [9.0]
 
 
 def test_retry_needs_a_finished_job_with_a_drawing(client, pg_session, alice, s3, queue):
