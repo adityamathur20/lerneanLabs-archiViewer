@@ -14,7 +14,8 @@ from archiagent_service.config import get_settings
 
 #: What the pipeline writes that is worth keeping (spec §3). The source is
 #: already stored under its own key and is deliberately not re-collected.
-ARTIFACT_PATTERNS = ("*.ifc", "*.interpretation.json", "*.report.json", "*.overlay.svg")
+ARTIFACT_PATTERNS = ("*.ifc", "*.interpretation.json", "*.report.json", "*.overlay.svg",
+                     "*.symbol-usage.json")
 
 EXIT_MEANING = {
     0: "succeeded",

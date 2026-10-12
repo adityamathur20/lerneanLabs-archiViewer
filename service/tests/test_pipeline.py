@@ -50,6 +50,7 @@ def test_collect_artifacts_finds_what_the_pipeline_wrote(tmp_path):
     (tmp_path / "source.interpretation.json").write_text("{}")
     (tmp_path / "source.report.json").write_text("{}")
     (tmp_path / "source.overlay.svg").write_text("<svg/>")
+    (tmp_path / "source.symbol-usage.json").write_text("{}")
     (tmp_path / "scratch.log").write_text("noise")
 
     names = sorted(p.name for p in collect_artifacts(tmp_path))
@@ -58,6 +59,7 @@ def test_collect_artifacts_finds_what_the_pipeline_wrote(tmp_path):
         "source.interpretation.json",
         "source.overlay.svg",
         "source.report.json",
+        "source.symbol-usage.json",
     ]
     assert "scratch.log" not in names
 
