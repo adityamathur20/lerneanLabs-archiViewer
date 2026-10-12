@@ -153,9 +153,9 @@ test("a problem row keeps the options out of the way, so Convert cannot send hal
   assert.equal(r.options, null);
 });
 
-test("more than six distinct thicknesses is refused with the limit named", () => {
-  const r = evaluateThickness(["1", "2", "3", "4", "5", "6", "7"].map((t) => row(t)), false);
-  assert.match(r.problems[0].message, /at most 6/i);
+test("more than ten distinct thicknesses is refused with the limit named", () => {
+  const r = evaluateThickness(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"].map((t) => row(t)), false);
+  assert.match(r.problems[0].message, /at most 10/i);
 });
 
 test("exhaustive is available only once a valid thickness exists, and only sent then", () => {
@@ -171,4 +171,10 @@ test("a typo in one row does not take 'only these' away from the valid ones", ()
   const r = evaluateThickness([row("9"), row("x")], true);
   assert.equal(r.exhaustiveAllowed, true);
   assert.equal(r.options, null);          // but nothing is sent until the row is fixed
+});
+
+test("ten distinct thicknesses are accepted", () => {
+  const r = evaluateThickness(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((t) => row(t)), false);
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.inches.length, 10);
 });

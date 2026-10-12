@@ -66,8 +66,8 @@ def test_no_declared_thickness_stores_nothing():
     assert StartRequest().model_dump(exclude_none=True) == {}
 
 
-@pytest.mark.parametrize("bad", [[], [0], [-4], [48.5], [float("nan")], [float("inf")], [1] * 7])
-def test_a_thickness_set_outside_one_to_six_values_above_0_to_48_inches_is_refused(bad):
+@pytest.mark.parametrize("bad", [[], [0], [-4], [48.5], [float("nan")], [float("inf")], [1] * 11])
+def test_a_thickness_set_outside_one_to_ten_values_above_0_to_48_inches_is_refused(bad):
     with pytest.raises(ValidationError):
         StartRequest(wall_thickness_in=bad)
 
@@ -76,3 +76,7 @@ def test_exhaustive_without_a_set_is_refused_but_false_is_harmless():
     with pytest.raises(ValidationError, match="wall_thickness_in"):
         StartRequest(wall_thickness_exhaustive=True)
     StartRequest(wall_thickness_exhaustive=False)
+
+
+def test_ten_thicknesses_are_accepted():
+    StartRequest(wall_thickness_in=[float(v) for v in range(1, 11)])

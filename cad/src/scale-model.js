@@ -104,7 +104,7 @@ export function evaluateScale({ walls, dimsOn, evidence }) {
 
 /** archiAgent's --wall-thickness bound, and the service's cap on how many. */
 const MAX_THICKNESS_IN = 48;
-const MAX_THICKNESSES = 6;
+const MAX_THICKNESSES = 10;
 const SAME_THICKNESS_IN = 0.01;
 const TO_INCHES = { in: 1, mm: 1 / 25.4, cm: 1 / 2.54 };
 const PLAIN_NUMBER = /^(\d+(\.\d*)?|\.\d+)$/;

@@ -59,11 +59,11 @@ class StartRequest(BaseModel):
     # needs one of these two (or it fails with the CLI's own explanation).
     trust_extracted_scale: bool | None = None
     scale_from_wall: list[ScaleFromWall] | None = Field(default=None, max_length=8)
-    # Declared wall thicknesses, in inches (archiAgent's --wall-thickness). The
+    # Declared wall thicknesses, in inches (archiAgent's --wall-thickness), at most 10. The
     # bound mirrors the CLI's, so a bad value fails here rather than minutes
     # later in the worker.
     wall_thickness_in: list[Annotated[float, Field(gt=0, le=48, allow_inf_nan=False)]] | None = Field(
-        default=None, min_length=1, max_length=6)
+        default=None, min_length=1, max_length=10)
     wall_thickness_exhaustive: bool | None = None
     # Removed from archiAgent's CLI; kept here only to refuse it by name rather
     # than silently dropping a scale the client thinks it set.

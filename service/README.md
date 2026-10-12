@@ -43,7 +43,7 @@ All routes require `Authorization: Bearer <api key>`.
 | DELETE | `/v1/jobs/{id}` | delete the job and its whole prefix |
 
 `start` and `retry` take the run's options. Scale is `trust_extracted_scale` or
-`scale_from_wall`. Wall thicknesses are optional: `wall_thickness_in` (1–6
+`scale_from_wall`. Wall thicknesses are optional: `wall_thickness_in` (1–10
 values in inches, above 0 up to 48) replaces the set archiAgent would infer from
 the drawing, and `wall_thickness_exhaustive: true` says the set is complete, so a
 candidate wall matching none of it is rejected. Exhaustive without a set is a 422.
