@@ -178,3 +178,30 @@ test("ten distinct thicknesses are accepted", () => {
   assert.deepEqual(r.problems, []);
   assert.equal(r.inches.length, 10);
 });
+
+// --- wall height (one value for every floor) -----------------------------------
+
+import { evaluateHeight, WALL_HEIGHT } from "../cad/src/scale-model.js";
+
+test("the wall height defaults to 10 ft and may be 1 to 50 ft", () => {
+  assert.deepEqual([WALL_HEIGHT.min, WALL_HEIGHT.max, WALL_HEIGHT.default], [1, 50, 10]);
+  assert.deepEqual(evaluateHeight("10"), { feet: 10, problem: null, options: { height_ft: 10 } });
+});
+
+test("both ends of the range are accepted, decimals too", () => {
+  assert.equal(evaluateHeight("1").feet, 1);
+  assert.equal(evaluateHeight("50").feet, 50);
+  assert.equal(evaluateHeight("9.84").feet, 9.84);
+});
+
+test("outside 1 to 50 ft, or not a number, is a problem that names the range", () => {
+  for (const text of ["0", "0.9", "50.1", "-3", "tall", "", "1e1"]) {
+    const r = evaluateHeight(text);
+    assert.equal(r.options, null, text);
+    assert.match(r.problem, /1.*50/, text);
+  }
+});
+
+test("a detected height replaces the default, and the user can still change it", () => {
+  assert.equal(evaluateHeight("9.843").feet, 9.843);
+});

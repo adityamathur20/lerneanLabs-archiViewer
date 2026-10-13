@@ -3,9 +3,10 @@
 It never does geometry, never imports archiagent, and never proxies artifact
 bytes — a 400 MB IFC goes straight from object storage to the client.
 """
+import json
 import re
 from pathlib import PurePosixPath
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,7 +54,13 @@ class ScaleFromWall(BaseModel):
 
 
 class StartRequest(BaseModel):
-    height_ft: float | None = None
+    # One wall height for every floor: 1 to 50 ft (the panel's slider), default 10.
+    height_ft: Annotated[float, Field(ge=1, le=50, allow_inf_nan=False)] | None = None
+    # "detect": look for several floors in the drawing and wait for the user to
+    # approve them. Omitted or "off": today's behaviour, one run.
+    floors: Literal["detect", "off"] | None = None
+    # False switches the per-floor vision review of uncertain walls off.
+    wall_adjudication: bool | None = None
     walls: list[str] | None = None
     # archiAgent refuses a DXF whose scale is not established, so a DXF job
     # needs one of these two (or it fails with the CLI's own explanation).
@@ -88,8 +95,34 @@ class StartRequest(BaseModel):
         return value
 
 
-def job_json(job: Job) -> dict:
+class FloorDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9._-]+$")
+    approved: bool
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    elevation_ft: float | None = Field(default=None, ge=-100, le=2000, allow_inf_nan=False)
+
+
+class FloorsDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    floors: list[FloorDecision] = Field(min_length=1, max_length=40)
+
+
+def job_json(job: Job, children=None) -> dict:
     """Spec §3.2."""
+    body = _job_json(job)
+    body["kind"] = job.kind
+    body["parent_job_id"] = job.parent_job_id
+    body["floor"] = job.floor
+    if children is not None:
+        body["floors"] = [{"job_id": c.id, "status": c.status, "error": c.error,
+                           "floor": c.floor, "artifacts": c.artifacts} for c in children]
+    return body
+
+
+def _job_json(job: Job) -> dict:
     return {
         "schema_version": 1,
         "job_id": job.id,
@@ -266,6 +299,95 @@ def create_app() -> FastAPI:
         get_queue().enqueue("archiagent_service.worker.prepare_job", job.id, on_failure=on_failure())
         return {"status": job.status}
 
+    def _detected_floors(job: Job) -> dict:
+        try:
+            return json.loads(get_store().get(f"{job.prefix}plan.floors.json"))
+        except Exception:
+            raise HTTPException(status_code=409, detail="no floors were detected for this job")
+
+    @app.get("/v1/jobs/{job_id}/floors")
+    def list_floors(
+        job_id: str,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        """The floors detection proposed. They are proposals: nothing is built
+        until the user has decided every one."""
+        job = owned_job(session, tenant, job_id)
+        if job.status != "awaiting_floors":
+            raise HTTPException(status_code=409, detail=f"job is {job.status}; it is not waiting for floors")
+        found = _detected_floors(job)
+        return {"status": job.status, "wall_height_ft": found.get("wall_height_ft"),
+                "units_per_foot": found.get("units_per_foot"), "floors": found["floors"]}
+
+    @app.post("/v1/jobs/{job_id}/floors/start")
+    def start_floors(
+        job_id: str,
+        body: FloorsDecision,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        """Every detected floor decided, at least one approved: one run per
+        approved floor, then one building."""
+        job = owned_job(session, tenant, job_id)
+        if job.status != "awaiting_floors":
+            raise HTTPException(status_code=409, detail=f"job is {job.status}; it is not waiting for floors")
+        detected = _detected_floors(job)
+        known = [f["id"] for f in detected["floors"]]
+        given = [d.id for d in body.floors]
+        if len(set(given)) != len(given):
+            raise HTTPException(status_code=409, detail="a floor was decided twice")
+        if unknown := sorted(set(given) - set(known)):
+            raise HTTPException(status_code=409, detail=f"this drawing has no floor {', '.join(unknown)}")
+        if undecided := [i for i in known if i not in given]:
+            raise HTTPException(status_code=409,
+                                detail=f"decide every floor first; no decision for {', '.join(undecided)}")
+        if not any(d.approved for d in body.floors):
+            raise HTTPException(status_code=409, detail="approve at least one floor")
+        by_id = {d.id: d for d in body.floors}
+        records = []
+        for floor in detected["floors"]:
+            decision = by_id[floor["id"]]
+            record = {**floor, "approved": decision.approved}
+            if decision.name is not None:
+                record["name"] = decision.name
+            if decision.elevation_ft is not None and decision.elevation_ft != floor["elevation_ft"]:
+                record["elevation_ft"] = decision.elevation_ft
+                record["elevation_source"] = "edited"
+            records.append(record)
+        get_store().put(f"{job.prefix}floors.decided.json",
+                        json.dumps({**detected, "floors": records}, indent=2).encode())
+        job.artifacts = [*(job.artifacts or []), "floors.decided.json"]
+        job.kind = "building"
+        job.status = "building"
+        session.commit()
+        get_queue().enqueue("archiagent_service.worker.start_floors", job.id, on_failure=on_failure())
+        return {"status": job.status}
+
+    @app.post("/v1/jobs/{job_id}/floors/{floor_id}/retry")
+    def retry_floor(
+        job_id: str,
+        floor_id: str,
+        tenant: Tenant = Depends(current_tenant),
+        session: Session = Depends(db_session),
+    ) -> dict:
+        """Run one failed floor again, alone; the building is assembled again
+        when it finishes. The floors that succeeded are not touched."""
+        parent = owned_job(session, tenant, job_id)
+        if parent.kind != "building" or parent.status not in ("partial", "failed"):
+            raise HTTPException(status_code=409, detail=f"job is {parent.status}; there is no floor to retry")
+        child = next((c for c in session.query(Job).filter_by(parent_job_id=parent.id).all()
+                      if (c.floor or {}).get("id") == floor_id), None)
+        if child is None:
+            raise HTTPException(status_code=404, detail=f"no floor {floor_id} in this building")
+        if child.status != "failed":
+            raise HTTPException(status_code=409, detail=f"floor {floor_id} is {child.status}; only a failed floor is retried")
+        child.status, child.error, child.exit_code, child.finished_at = "queued", None, None, None
+        parent.status, parent.error = "building", None
+        session.commit()
+        get_queue().enqueue("archiagent_service.worker.run_job", child.id, on_failure=on_failure())
+        return {"status": parent.status, "floor_job_id": child.id}
+
     @app.post("/v1/jobs/{job_id}/retry")
     def retry_job(
         job_id: str,
@@ -303,7 +425,11 @@ def create_app() -> FastAPI:
         tenant: Tenant = Depends(current_tenant),
         session: Session = Depends(db_session),
     ) -> dict:
-        return job_json(owned_job(session, tenant, job_id))
+        job = owned_job(session, tenant, job_id)
+        if job.kind != "building":
+            return job_json(job)
+        children = session.query(Job).filter_by(parent_job_id=job.id).order_by(Job.id).all()
+        return job_json(job, children)
 
     @app.get("/v1/jobs")
     def list_jobs(
@@ -344,11 +470,15 @@ def create_app() -> FastAPI:
         session: Session = Depends(db_session),
     ) -> dict:
         job = owned_job(session, tenant, job_id)
-        if job.status in ("queued", "running"):
+        if job.status in ("queued", "running", "building", "assembling"):
             # Deleting under a live worker orphans whatever it uploads next:
             # billed forever and invisible to delete_prefix.
             raise HTTPException(status_code=409, detail=f"job is {job.status}; wait for it to finish")
         removed = get_store().delete_prefix(job.prefix)
+        for child in session.query(Job).filter_by(parent_job_id=job.id).all():
+            if child.status in ("queued", "running"):
+                raise HTTPException(status_code=409, detail="a floor is still running; wait for it to finish")
+            removed += get_store().delete_prefix(child.prefix)
         session.delete(job)
         return {"deleted": True, "objects_removed": removed}
 

@@ -49,6 +49,13 @@ class Job(Base):
     source_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     converted_from_dwg: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # "single": today's job. "building": a drawing with several floors, which owns
+    # one "floor" job per approved floor (parent_job_id) and assembles their IFCs.
+    kind: Mapped[str] = mapped_column(String(10), default="single", server_default="single")
+    parent_job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True, index=True)
+    floor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     options: Mapped[dict] = mapped_column(JSON, default=dict)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     acceptance: Mapped[str | None] = mapped_column(String(40), nullable=True)

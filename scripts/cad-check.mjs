@@ -286,6 +286,48 @@ for (const [i, d] of listed.entries()) {
   check("thickness: adding one again brings the default back on", await page.$eval("#thicknessExhaustive", (e) => !e.disabled && e.checked));
   await page.click(".thicknessRow:nth-child(1) button.remove"); await settle(200);
 
+  // --- Wall height: one slider, 1 to 50 ft, default 10 -------------------------
+  check("height: the slider starts at 10 ft", await page.$eval("#wallHeight", (e) => e.value === "10" && e.min === "1" && e.max === "50")
+    && await page.$eval("#wallHeightValue", (e) => e.value === "10"));
+  await page.evaluate(() => { window.__cad.cli = ""; });
+  await page.click("#convertScale"); await settle(300);
+  check("height: Convert sends the 10 ft default", /--height 10(\s|$)/.test(await page.evaluate(() => window.__cad.cli ?? "")));
+  await page.$eval("#wallHeight", (e) => { e.value = "20"; e.dispatchEvent(new Event("input", { bubbles: true })); });
+  check("height: sliding updates the number beside it", await page.$eval("#wallHeightValue", (e) => e.value === "20"));
+  await page.$eval("#wallHeightValue", (e) => { e.value = ""; });
+  await page.type("#wallHeightValue", "12.5");
+  check("height: typing a number moves the slider", await page.$eval("#wallHeight", (e) => e.value === "12.5"));
+  await page.evaluate(() => { window.__cad.cli = ""; });
+  await page.click("#convertScale"); await settle(300);
+  check("height: Convert sends what is selected", /--height 12\.5(\s|$)/.test(await page.evaluate(() => window.__cad.cli ?? "")));
+  await page.$eval("#wallHeightValue", (e) => { e.value = ""; });
+  await page.type("#wallHeightValue", "60");
+  check("height: 60 ft blocks Convert and names the range",
+    (await convertOff()) && /1.*50/.test(await page.$eval("#heightReadout", (e) => e.textContent)));
+  await page.$eval("#wallHeightValue", (e) => { e.value = ""; });
+  await page.type("#wallHeightValue", "10");
+  check("height: back in range restores Convert", !(await convertOff()));
+
+  // --- Floors: shown for approval one by one (stubbed: no job here) -------------
+  await page.evaluate(() => window.__cad.floors.show([
+    { id: "floor-01", name: "Ground floor", bounds: [0, 0, 100, 100], elevation_ft: 0, elevation_source: "assumed", confidence: 0.9 },
+    { id: "floor-02", name: "Unnamed plan 2", bounds: [200, 0, 300, 100], elevation_ft: 10, elevation_source: "assumed", confidence: 0.2 }]));
+  check("floors: the panel replaces the scale section", await page.$eval("#floorsSection", (e) => !e.hidden)
+    && await page.$eval("#scaleSection", (e) => e.hidden));
+  check("floors: one row per floor, Convert closed until each is decided",
+    (await page.$$eval(".floorRow", (r) => r.length)) === 2 && await page.$eval("#startFloors", (e) => e.disabled));
+  await page.click(".floorRow:nth-child(1) .approve");
+  check("floors: one decided, one not: still closed, and it says how many are left",
+    await page.$eval("#startFloors", (e) => e.disabled) && /1 more/.test(await page.$eval("#floorsReadout", (e) => e.textContent)));
+  await page.click(".floorRow:nth-child(2) .disapprove");
+  check("floors: every floor decided with one approved opens Convert", await page.$eval("#startFloors", (e) => !e.disabled));
+  await page.type(".floorRow:nth-child(1) .fields input:nth-child(2)", "abc");
+  check("floors: a bad elevation closes it again and names the problem",
+    await page.$eval("#startFloors", (e) => e.disabled) && /elevation/i.test(await page.$eval("#floorsReadout", (e) => e.textContent)));
+  await page.screenshot({ path: path.join(out, `${i}-floors.png`) });
+  await page.evaluate(() => window.__cad.floors.hide());
+  check("floors: hiding returns the scale section", await page.$eval("#scaleSection", (e) => !e.hidden));
+
   // --- Pointer / Hand: mlightcad's own selection and pan modes ----------------
   const world = () => page.evaluate(() => { const p = window.__cad.manager.curView.screenToWorld({ x: 400, y: 300 }); return [p.x, p.y]; });
   const dragBy = async (dx, dy) => {

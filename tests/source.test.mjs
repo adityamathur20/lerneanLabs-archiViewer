@@ -329,3 +329,77 @@ test("the dev server serves a drawing's scale evidence, and its absence is not a
   assert.equal(await source.fetchScaleEvidence("b/other.dxf"), null);
   assert.equal(seen[0], "/api/scale?path=a%2Fplan.dxf");
 });
+
+// --- buildings: several floors, one building -------------------------------------------------
+
+function jobsSource(jobs, calls = []) {
+  return createApiSource({
+    base: "https://api.planto3d.in",
+    token: "k",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse(jobs);
+    },
+  });
+}
+
+test("a building is listed with its own IFC, and its floors with their names", async () => {
+  const source = jobsSource({ jobs: [
+    { ...apiJob({ id: "P", filename: "sheet.dxf", artifacts: ["plan.dxf", "building.ifc", "building.report.json"] }), kind: "building" },
+    { ...apiJob({ id: "F1", filename: "floor-01.dxf" }), kind: "floor", parent_job_id: "P", floor: { id: "floor-01", name: "Ground floor" } },
+  ] });
+  const listed = await source.list();
+  assert.deepEqual(listed.map((m) => [m.id, m.ifc]), [["P", "building.ifc"], ["F1", "plan.ifc"]]);
+  assert.match(listed[0].label, /building/i);
+  assert.match(listed[1].label, /Ground floor/);
+});
+
+test("a partly finished building is listed too, and says so", async () => {
+  const source = jobsSource({ jobs: [
+    { ...apiJob({ id: "P", status: "partial", filename: "sheet.dxf", artifacts: ["plan.dxf", "building.ifc"] }), kind: "building" },
+  ] });
+  const [entry] = await source.list();
+  assert.equal(entry.id, "P");
+  assert.match(entry.label, /partial/i);
+});
+
+test("fetchIfc names the IFC to fetch, plan.ifc by default", async () => {
+  const urls = [];
+  const source = createApiSource({ base: "https://x", token: "k", fetchImpl: async (url) => {
+    urls.push(url);
+    return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array([1]).buffer, headers: new Map() };
+  } });
+  await source.fetchIfc("P", "building.ifc");
+  await source.fetchIfc("P");
+  assert.deepEqual(urls, ["https://x/v1/jobs/P/artifacts/building.ifc", "https://x/v1/jobs/P/artifacts/plan.ifc"]);
+});
+
+test("the floors waiting for a decision are fetched, and decided with one POST", async () => {
+  const calls = [];
+  const source = createApiSource({ base: "https://x", token: "k", fetchImpl: async (url, init) => {
+    calls.push({ url, init });
+    return jsonResponse(url.endsWith("/floors") ? { status: "awaiting_floors", floors: [{ id: "floor-01" }] } : { status: "building" });
+  } });
+  const found = await source.fetchFloors("P");
+  assert.deepEqual(found.floors.map((f) => f.id), ["floor-01"]);
+  await source.startFloors("P", { floors: [{ id: "floor-01", approved: true }] });
+  assert.equal(calls[1].url, "https://x/v1/jobs/P/floors/start");
+  assert.equal(calls[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), { floors: [{ id: "floor-01", approved: true }] });
+});
+
+test("a status poll carries the building's floors so the page can say how far it is", async () => {
+  const source = jobsSource({ job_id: "P", status: "building", kind: "building", artifacts: [],
+    floors: [{ job_id: "a", status: "succeeded", floor: { name: "Ground floor" } },
+             { job_id: "b", status: "running", floor: { name: "First floor" } }] });
+  const job = await source.jobStatus("P");
+  assert.equal(job.kind, "building");
+  assert.deepEqual(job.floors.map((f) => [f.name, f.status]), [["Ground floor", "succeeded"], ["First floor", "running"]]);
+});
+
+test("a job waiting for floors is listed among the drawings, saying so", async () => {
+  const source = jobsSource({ jobs: [apiJob({ id: "W", status: "awaiting_floors", filename: "s.dxf", artifacts: ["plan.dxf", "plan.floors.json"] })] });
+  const [drawing] = await source.listDrawings();
+  assert.match(drawing.label, /waiting for floors/i);
+  assert.equal(drawing.status, "awaiting_floors");
+});

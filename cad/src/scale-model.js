@@ -146,3 +146,21 @@ export function evaluateThickness(rows, exhaustive) {
         : {},
   };
 }
+
+/** One wall height for every floor; each next floor sits one height above the last. */
+export const WALL_HEIGHT = { min: 1, max: 50, default: 10, step: 0.5 };
+
+/**
+ * The wall height as typed or slid, as the option a run is sent with.
+ *
+ * @param {string|number} value
+ * @returns {{feet: number|null, problem: string|null, options: {height_ft: number}|null}}
+ */
+export function evaluateHeight(value) {
+  const text = String(value ?? "").trim();
+  const range = `The wall height must be between ${WALL_HEIGHT.min} and ${WALL_HEIGHT.max} ft.`;
+  if (!PLAIN_NUMBER.test(text)) return { feet: null, problem: range, options: null };
+  const feet = Number(text);
+  if (!(feet >= WALL_HEIGHT.min && feet <= WALL_HEIGHT.max)) return { feet: null, problem: range, options: null };
+  return { feet, problem: null, options: { height_ft: feet } };
+}

@@ -17,6 +17,8 @@ import {
   collectMeasurementRecords,
 } from "@mlightcad/cad-simple-viewer";
 import { createApiSource, createDiskSource, SourceError } from "../../src/source.js";
+import { AcGeBox2d } from "@mlightcad/data-model";
+import { createFloorsPanel } from "./floors-panel.js";
 import { createScalePanel } from "./scale-panel.js";
 
 // Same key and same API as the 3D view: one sign-in for both.
@@ -36,6 +38,7 @@ const source = API_BASE
   : createDiskSource({});
 
 const el = (id) => document.getElementById(id);
+const note = (message) => { el("notes").textContent = message; };
 const status = el("status");
 const params = new URLSearchParams(location.search);
 
@@ -217,6 +220,7 @@ const scale = createScalePanel({
       if (options.trust_extracted_scale) flags.push("--trust-extracted-scale");
       if (options.wall_thickness_in) flags.push(`--wall-thickness ${options.wall_thickness_in.join(" ")}`);
       if (options.wall_thickness_exhaustive) flags.push("--wall-thickness-exhaustive");
+      if (options.height_ft) flags.push(`--height ${options.height_ft}`);
       state.cli = `CLI: ${flags.join(" ")}`;
       el("scaleReadout").textContent = state.cli;
       return;
@@ -234,6 +238,20 @@ const scale = createScalePanel({
   },
 });
 state.scale = scale;
+
+// Several floors in one drawing: shown for the user to approve one by one.
+const floorsPanel = createFloorsPanel({
+  el,
+  zoomTo(bounds) {
+    const [x0, y0, x1, y1] = bounds;
+    manager.curView?.zoomTo(new AcGeBox2d({ x: x0, y: y0 }, { x: x1, y: y1 }), 1.1);
+  },
+  async start(decisions) {
+    await source.startFloors(current.id, decisions);
+    location.href = `/?wait=${encodeURIComponent(current.id)}`;
+  },
+});
+state.floors = floorsPanel;
 
 // --- loading ------------------------------------------------------------------
 
@@ -293,6 +311,16 @@ async function show(id, name) {
   renderLayers();
   scale.reset();
   scale.showEvidence(await source.fetchScaleEvidence(id).catch(() => null));
+  floorsPanel.hide();
+  if (source.kind === "api" && current?.status === "awaiting_floors") {
+    try {
+      const found = await source.fetchFloors(id);
+      floorsPanel.show(found.floors);
+      note(`${found.floors.length} plans found in this drawing: approve or disapprove each.`);
+    } catch (error) {
+      note(`Could not read the detected floors: ${error.message}`);
+    }
+  }
   setToolsEnabled(true);
   syncTool();
   say("");

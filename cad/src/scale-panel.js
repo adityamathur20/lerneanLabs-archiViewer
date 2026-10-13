@@ -11,14 +11,20 @@
  * Wall thicknesses are optional and typed: rows of [number][unit], plus "these
  * are the only ones". They ride along with the scale options; a wrong row
  * blocks Convert and names itself, exactly as a wrong wall length does.
+ *
+ * The wall height is one slider, 1 to 50 ft, default 10: the same for every
+ * floor. A drawing that writes its level marks starts it at the spacing they
+ * agree on, and says so.
  */
 import { spanOf } from "./set-scale.js";
-import { evaluateScale, evaluateThickness } from "./scale-model.js";
+import { evaluateHeight, evaluateScale, evaluateThickness, WALL_HEIGHT } from "./scale-model.js";
 
 export function createScalePanel({ manager, el, submit, canSubmit, showPointer }) {
   const walls = [];                 // { id, start, end, text }
   const thicknesses = [];           // { text, unit }
   let exhaustiveWanted = true;      // 'only these' is on unless the user unticks it
+  let heightText = String(WALL_HEIGHT.default);
+  let heightNote = "";              // where the starting value came from
   let evidence = null;
   let dimsOn = false;
   let picking = false;
@@ -74,6 +80,8 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
   }
 
   function update() {
+    const h = evaluateHeight(heightText);
+    el("heightReadout").textContent = h.problem ?? heightNote;
     const r = evaluateScale({ walls, dimsOn, evidence });
     // "Only these" needs a valid thickness to mean anything. The user's choice is
     // kept apart from what applies, so removing every row and adding one again
@@ -99,9 +107,10 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
     else if (r.upf) lines.push(`Scale: ${r.upf.toFixed(4)} units per foot${r.agreement === "agree" ? " — the walls agree" : ""}.`);
     lines.push(...r.notes);
     el("scaleReadout").textContent = lines.join(" ");
-    el("convertScale").disabled = !(r.canConvert && !t.problems.length && canSubmit());
+    el("convertScale").disabled = !(r.canConvert && !t.problems.length && !h.problem && canSubmit());
     state.result = r;
     state.thickness = t;
+    state.height = h;
     return r;
   }
 
@@ -114,13 +123,29 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
     // The switch starts ON when the dimensions can carry the scale: that is
     // the one-click path, and measuring a wall still overrides it.
     dimsOn = Boolean(report?.extracted);
+    // Level marks the drawing writes (`+3.6 FIRST FFL`) agree on a floor-to-floor
+    // height: start the slider there rather than at the 10 ft default.
+    const drawn = report?.levels?.wall_height_ft;
+    if (drawn >= WALL_HEIGHT.min && drawn <= WALL_HEIGHT.max) {
+      setHeight(String(Math.round(drawn * 100) / 100));
+      heightNote = `Taken from the level marks in this drawing (${report.levels.markers.length} floors). Move it to change.`;
+    }
     update();
+  }
+
+  function setHeight(text) {
+    heightText = text;
+    const feet = Number(text);
+    if (Number.isFinite(feet)) el("wallHeight").value = String(Math.min(WALL_HEIGHT.max, Math.max(WALL_HEIGHT.min, feet)));
+    el("wallHeightValue").value = text;
   }
 
   function reset() {
     walls.length = 0;
     thicknesses.length = 0;
     exhaustiveWanted = true;
+    heightNote = "";
+    setHeight(String(WALL_HEIGHT.default));
     picking = false;
     buildRows();
     buildThicknessRows();
@@ -164,11 +189,20 @@ export function createScalePanel({ manager, el, submit, canSubmit, showPointer }
     el("thicknessRows").querySelector(".thicknessRow:last-child input").focus();
   });
   el("thicknessExhaustive").addEventListener("change", () => { exhaustiveWanted = el("thicknessExhaustive").checked; update(); });
+  el("wallHeight").addEventListener("input", () => { heightNote = ""; setHeight(el("wallHeight").value); update(); });
+  el("wallHeightValue").addEventListener("input", () => { heightNote = ""; heightText = el("wallHeightValue").value;
+    const feet = Number(heightText);
+    if (Number.isFinite(feet)) el("wallHeight").value = String(Math.min(WALL_HEIGHT.max, Math.max(WALL_HEIGHT.min, feet)));
+    update(); });
   el("convertScale").addEventListener("click", () => {
     const r = update();
-    if (r.canConvert && state.thickness.options) submit({ ...r.options, ...state.thickness.options });
+    if (r.canConvert && state.thickness.options && state.height.options) {
+      // `floors: "detect"` asks the service to look for several plans in the
+      // drawing and wait for the user's decisions before building anything.
+      submit({ ...r.options, ...state.thickness.options, ...state.height.options, floors: "detect" });
+    }
   });
 
-  const state = { showEvidence, reset, update, walls, result: null, thickness: null };
+  const state = { showEvidence, reset, update, walls, result: null, thickness: null, height: null };
   return state;
 }
