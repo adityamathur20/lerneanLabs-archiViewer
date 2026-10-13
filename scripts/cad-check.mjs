@@ -311,7 +311,7 @@ for (const [i, d] of listed.entries()) {
   // --- Floors: shown for approval one by one (stubbed: no job here) -------------
   await page.evaluate(() => window.__cad.floors.show([
     { id: "floor-01", name: "Ground floor", bounds: [0, 0, 100, 100], elevation_ft: 0, elevation_source: "assumed", confidence: 0.9 },
-    { id: "floor-02", name: "Unnamed plan 2", bounds: [200, 0, 300, 100], elevation_ft: 10, elevation_source: "assumed", confidence: 0.2 }], 12));
+    { id: "floor-02", name: "Unnamed plan 2", bounds: [200, 0, 300, 100], elevation_ft: 10, elevation_source: "assumed", confidence: 0.2 }]));
   check("floors: the panel replaces the scale section", await page.$eval("#floorsSection", (e) => !e.hidden)
     && await page.$eval("#scaleSection", (e) => e.hidden));
   check("floors: one row per floor, Convert closed until each is decided",

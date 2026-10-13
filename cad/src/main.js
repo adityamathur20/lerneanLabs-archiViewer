@@ -315,7 +315,7 @@ async function show(id, name) {
   if (source.kind === "api" && current?.status === "awaiting_floors") {
     try {
       const found = await source.fetchFloors(id);
-      floorsPanel.show(found.floors, found.units_per_foot ?? 1);
+      floorsPanel.show(found.floors);
       note(`${found.floors.length} plans found in this drawing: approve or disapprove each.`);
     } catch (error) {
       note(`Could not read the detected floors: ${error.message}`);

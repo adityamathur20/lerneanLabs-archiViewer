@@ -18,7 +18,6 @@ export function createFloorsPanel({ el, zoomTo, start }) {
   let floors = [];
   let decisions = {};
   let edits = {};
-  let unit = 1;                 // drawing units per foot, to zoom the right box
 
   const create = (tag, props = {}, ...children) => {
     const node = Object.assign(document.createElement(tag), props);
@@ -82,9 +81,8 @@ export function createFloorsPanel({ el, zoomTo, start }) {
 
   const state = {
     result: null,
-    show(proposed, unitsPerFoot = 1) {
+    show(proposed) {
       floors = proposed;
-      unit = unitsPerFoot;
       decisions = {};
       edits = {};
       el("floorsSection").hidden = false;
@@ -98,6 +96,5 @@ export function createFloorsPanel({ el, zoomTo, start }) {
     },
     update,
   };
-  void unit;
   return state;
 }
