@@ -17,6 +17,10 @@ from archiagent_service.config import get_settings
 ARTIFACT_PATTERNS = ("*.ifc", "*.interpretation.json", "*.report.json", "*.overlay.svg",
                      "*.symbol-usage.json")
 
+#: A floor's own drawing is stored under this name in the floor job's prefix, so
+#: a floor job is an ordinary prepared job whose plan.dxf is the cut drawing.
+CLASSIFICATION_FILE = "plan.classification.json"
+
 EXIT_MEANING = {
     0: "succeeded",
     1: "pipeline or validation failure",
@@ -39,6 +43,17 @@ def _plain(value: float) -> str:
     return format(float(value), ".10f").rstrip("0").rstrip(".") if "e" in text.lower() else text
 
 
+def _scale_args(options: dict) -> list[str]:
+    """How the scale was chosen. `units_per_foot` may still sit in an older job's
+    stored options; the CLI removed --units-per-foot, so it is not forwarded."""
+    command: list[str] = []
+    if options.get("trust_extracted_scale"):
+        command.append("--trust-extracted-scale")
+    for wall in options.get("scale_from_wall") or ():
+        command += ["--scale-from-wall", *(str(wall[k]) for k in ("x1", "y1", "x2", "y2", "length"))]
+    return command
+
+
 def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> list[str]:
     # Exactly one input flag is accepted. DWG conversion happens inside the
     # CLI (Tier 1), so the service only names the flag.
@@ -46,12 +61,11 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
         source.suffix.lower(), "--dxfFilePath"
     )
     command = [str(python), "-m", "archiagent", flag, str(source), "--outputDir", str(out_dir)]
-    # `units_per_foot` may still sit in an older job's stored options; the CLI
-    # removed --units-per-foot, so it is deliberately not forwarded.
-    if options.get("trust_extracted_scale"):
-        command.append("--trust-extracted-scale")
-    for wall in options.get("scale_from_wall") or ():
-        command += ["--scale-from-wall", *(str(wall[k]) for k in ("x1", "y1", "x2", "y2", "length"))]
+    command += _scale_args(options)
+    if classification := options.get("classification_file"):
+        command += ["--classification-file", str(classification)]
+    if options.get("wall_adjudication") is False:
+        command.append("--no-wall-adjudication")
     if thicknesses := options.get("wall_thickness_in"):
         command += ["--wall-thickness", *(_plain(v) for v in thicknesses)]
         if options.get("wall_thickness_exhaustive"):
@@ -63,6 +77,34 @@ def build_command(python: Path, source: Path, out_dir: Path, options: dict) -> l
     return command
 
 
+def build_detect_floors_command(python: Path, source: Path, options: dict) -> list[str]:
+    """`--detect-floors`: the floors as JSON on stdout. Needs the scale; no model call."""
+    command = [str(python), "-m", "archiagent", "--dxfFilePath", str(source), "--detect-floors"]
+    command += _scale_args(options)
+    if (height := options.get("height_ft")) is not None:
+        command += ["--height", str(height)]
+    return command
+
+
+def build_classify_command(python: Path, source: Path, classification_out: Path, options: dict) -> list[str]:
+    """One layer classification for the whole file, written for every floor run."""
+    command = [str(python), "-m", "archiagent", "--dxfFilePath", str(source), "--classify-only",
+               "--classification-out", str(classification_out)]
+    if walls := options.get("walls"):
+        command += ["--walls", *walls]
+    return command
+
+
+def build_cut_command(python: Path, source: Path, floors_json: Path, out_dir: Path) -> list[str]:
+    return [str(python), "-m", "archiagent", "--dxfFilePath", str(source), "--cut-floors", str(floors_json),
+            "--outputDir", str(out_dir)]
+
+
+def build_assemble_command(python: Path, floors_json: Path, floors_dir: Path, out_dir: Path) -> list[str]:
+    return [str(python), "-m", "archiagent", "--assemble-building", str(floors_json),
+            "--floors-dir", str(floors_dir), "--outputDir", str(out_dir)]
+
+
 def build_prepare_command(python: Path, source: Path, out_dir: Path) -> list[str]:
     """`--prepare`: convert a DWG, write plan.scale.json, stop. No model calls."""
     flag = "--dwgFilePath" if source.suffix.lower() == ".dwg" else "--dxfFilePath"
@@ -72,6 +114,30 @@ def build_prepare_command(python: Path, source: Path, out_dir: Path) -> list[str
 def run_prepare(source: Path, out_dir: Path, timeout_s: int | None = None) -> CliResult:
     settings = get_settings()
     return _run(build_prepare_command(settings.archiagent_python, source, out_dir),
+                settings.prepare_timeout_s if timeout_s is None else timeout_s)
+
+
+def run_detect_floors(source: Path, options: dict, timeout_s: int | None = None) -> CliResult:
+    settings = get_settings()
+    return _run(build_detect_floors_command(settings.archiagent_python, source, options),
+                settings.prepare_timeout_s if timeout_s is None else timeout_s)
+
+
+def run_classify(source: Path, classification_out: Path, options: dict, timeout_s: int | None = None) -> CliResult:
+    settings = get_settings()
+    return _run(build_classify_command(settings.archiagent_python, source, classification_out, options),
+                settings.cli_timeout_s if timeout_s is None else timeout_s)
+
+
+def run_cut_floors(source: Path, floors_json: Path, out_dir: Path, timeout_s: int | None = None) -> CliResult:
+    settings = get_settings()
+    return _run(build_cut_command(settings.archiagent_python, source, floors_json, out_dir),
+                settings.prepare_timeout_s if timeout_s is None else timeout_s)
+
+
+def run_assemble(floors_json: Path, floors_dir: Path, out_dir: Path, timeout_s: int | None = None) -> CliResult:
+    settings = get_settings()
+    return _run(build_assemble_command(settings.archiagent_python, floors_json, floors_dir, out_dir),
                 settings.prepare_timeout_s if timeout_s is None else timeout_s)
 
 
