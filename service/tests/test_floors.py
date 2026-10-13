@@ -356,8 +356,10 @@ def test_deleting_a_building_removes_its_floors_and_their_files(client, pg_sessi
     parent, ok, bad, key = partial_building
     s3.put(f"{ok.prefix}plan.ifc", b"ISO-10303-21;")
     s3.put(f"{parent.prefix}building.ifc", b"ISO-10303-21;")
+    child_id, child_prefix = ok.id, ok.prefix
     answer = client.delete(f"/v1/jobs/{parent.id}", headers=_auth(key))
     assert answer.status_code == 200
-    assert s3.list_prefix(ok.prefix) == [] and s3.list_prefix(parent.prefix) == []
-    pg_session.expire_all()
-    assert pg_session.query(Job).filter_by(id=ok.id).count() == 0
+    assert s3.list_prefix(child_prefix) == [] and s3.list_prefix(parent.prefix) == []
+    pg_session.flush()                       # the API deletes in the shared session
+    pg_session.expunge_all()
+    assert pg_session.query(Job).filter_by(id=child_id).count() == 0
