@@ -108,6 +108,11 @@ services:
       context: ..
       dockerfile: archiagent-viewer/service/Dockerfile.worker
     restart: unless-stopped
+    # The floors of one building run in parallel, one process each. Three to
+    # start; a run waits on the LLM more than it computes, but memory per run
+    # is to be measured before this is raised on the 8 GB box.
+    deploy:
+      replicas: ${WORKER_REPLICAS:-3}
     # The worker is the only tier that calls an LLM, so it is the only one
     # given the key. Garage's RPC and admin secrets stay with garage.
     environment:
@@ -157,6 +162,9 @@ services:
       ARCHIAGENT_LLM_TIMEOUT: "900"
       ARCHIAGENT_SERVICE_CLI_TIMEOUT_S: ${ARCHIAGENT_SERVICE_CLI_TIMEOUT_S:-5400}
       ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S: ${ARCHIAGENT_SERVICE_QUEUE_TIMEOUT_S:-7200}
+      # One tenant may run as many jobs at once as there are workers, so a
+      # building's floors are not held back by the default cap of two.
+      ARCHIAGENT_SERVICE_TENANT_MAX_CONCURRENT: ${WORKER_REPLICAS:-3}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

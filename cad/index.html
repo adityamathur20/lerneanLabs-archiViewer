@@ -60,6 +60,19 @@
       .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; cursor: pointer; }
       .check input { margin-top: 3px; }
       .check input:disabled + span { color: var(--muted); }
+      .heightRow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+      .heightRow input[type="range"] { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); }
+      .heightRow input[type="text"] { width: 64px; margin: 0; flex: none; text-align: right; }
+      .floorRow { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+      .floorRow.approved { border-color: var(--accent); }
+      .floorRow.disapproved { opacity: .6; }
+      .floorRow .fields { display: grid; grid-template-columns: 1fr 78px; gap: 6px; }
+      .floorRow input[type="text"] { margin: 0; }
+      .floorRow .decide { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 6px; margin-top: 6px; }
+      .floorRow .decide button { margin-top: 0; }
+      .floorRow button.chosen { border-color: var(--accent); color: var(--accent); }
+      .floorRow .why { font-size: 11px; color: var(--muted); margin-top: 4px; }
+      .floorRow .problem { font-size: 11px; color: var(--warn); margin-top: 4px; }
       .wallRow { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
       .rowHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .rowTitle { font-size: 11px; color: var(--muted); }
@@ -119,6 +132,15 @@
         <a class="button" href="/">Go to the 3D view</a>
       </div>
 
+      <section id="floorsSection" hidden>
+        <h2>Floors found</h2>
+        <div class="sub">This drawing holds several plans. Approve each one to build it, or disapprove what is not a floor. Names and elevations can be changed.</div>
+        <div id="floorRows"></div>
+        <button id="startFloors" disabled>Convert the approved floors</button>
+        <div class="sub" id="floorsReadout" style="margin-top:6px"></div>
+      </section>
+
+      <div id="scaleSection">
       <h2>Scale</h2>
       <label class="switch">
         <input id="useDims" type="checkbox" role="switch" disabled />
@@ -142,7 +164,17 @@
       <div class="sub" style="margin-top:4px">Ticked: lines of any other thickness are not built as walls. Untick it to let these thicknesses count in favour only.</div>
       <div class="sub" id="thicknessReadout" style="margin-top:6px"></div>
 
+      <h2>Wall height</h2>
+      <div class="sub">The same for every floor; each floor sits one wall height above the one below.</div>
+      <div class="heightRow">
+        <input id="wallHeight" type="range" min="1" max="50" step="0.5" value="10" aria-label="Wall height in feet" />
+        <input id="wallHeightValue" type="text" inputmode="decimal" value="10" aria-label="Wall height, feet" autocomplete="off" />
+        <span>ft</span>
+      </div>
+      <div class="sub" id="heightReadout" style="margin-top:6px"></div>
+
       <button id="convertScale" disabled>Convert with this scale</button>
+      </div>
 
       <h2>View</h2>
       <div class="tools">

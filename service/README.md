@@ -48,6 +48,31 @@ values in inches, above 0 up to 48) replaces the set archiAgent would infer from
 the drawing, and `wall_thickness_exhaustive: true` says the set is complete, so a
 candidate wall matching none of it is rejected. Exhaustive without a set is a 422.
 
+`height_ft` is the wall height, 1 to 50 ft, one value for every floor.
+`wall_adjudication: false` switches the vision review of uncertain walls off.
+
+### Several floors in one drawing
+
+A start with `floors: "detect"` looks for several plans in the drawing. One plan
+(or none recognised) runs as it always did. Two or more stop the job at
+**`awaiting_floors`**, with the proposals and one shared layer classification
+stored (`plan.floors.json`, `plan.classification.json`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/v1/jobs/{id}/floors` | the proposed floors (409 unless `awaiting_floors`) |
+| POST | `/v1/jobs/{id}/floors/start` | `{floors: [{id, approved, name?, elevation_ft?}]}`: **409 unless every detected floor has a decision** and one is approved |
+| POST | `/v1/jobs/{id}/floors/{floor_id}/retry` | run one failed floor again, alone |
+
+Deciding starts a `building` job that owns one ordinary `floor` job per approved
+floor (`parent_job_id`, `floor`). Each floor runs on only its own cut drawing,
+with the shared classification, so layers are classified once per file. When the
+last floor ends the building is assembled: `succeeded` (every floor), `partial`
+(some failed; the building holds the ones that ran) or `failed`. A building
+carries `building.ifc` and `building.report.json`; each floor keeps its own
+`plan.ifc`. Floors are not stacked on one another and have no slabs or roofs
+yet: each storey is at its elevation, in source coordinates.
+
 Artifacts live under `{tenant_id}/{job_id}/`, and authorization is a single
 prefix check in `auth.owned_job` — which returns **404, never 403**, for another
 tenant's job, because a 403 would confirm that the job exists.

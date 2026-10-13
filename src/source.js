@@ -11,6 +11,19 @@
  * holds for want of a cache to go stale.
  */
 
+/** What a job status is called where a person reads it. */
+const STATUS_WORDS = { ready: "waiting for scale", awaiting_floors: "waiting for floors", building: "building floors",
+  assembling: "assembling the building", partial: "partly built" };
+
+/** The IFC a job offers the 3D view, or null: a building's, or a single job's plan.ifc. */
+function modelOf(job) {
+  const names = job.artifacts ?? [];
+  if (job.kind === "building") {
+    return ["succeeded", "partial"].includes(job.status) && names.includes("building.ifc") ? "building.ifc" : null;
+  }
+  return job.status === "succeeded" && names.includes("plan.ifc") ? "plan.ifc" : null;
+}
+
 export class SourceError extends Error {
   constructor(message, status) {
     super(message);
@@ -71,15 +84,21 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
       if (!response.ok) throw new SourceError(await detail(response), response.status);
       const { jobs = [] } = await response.json();
       return jobs
-        .filter((job) => job.status === "succeeded" && (job.artifacts ?? []).includes("plan.ifc"))
+        .map((job) => ({ job, ifc: modelOf(job) }))
+        .filter(({ ifc }) => ifc)
         // Field names come from job_json() in api.py: `job_id`, and the
         // filename nested under `source`. Not `id`/`source_filename`.
-        .map((job) => ({
-          id: job.job_id,
-          name: job.source?.filename ?? job.job_id,
-          label: `${job.source?.filename ?? job.job_id} — ${job.job_id}`,
-          hasDrawing: (job.artifacts ?? []).includes("plan.dxf"),
-        }));
+        .map(({ job, ifc }) => {
+          const file = job.source?.filename ?? job.job_id;
+          const label = job.kind === "building"
+            ? `${file} — building${job.status === "partial" ? " (partial)" : ""} — ${job.job_id}`
+            : job.kind === "floor" ? `${file} — ${job.floor?.name ?? "floor"} — ${job.job_id}`
+              : `${file} — ${job.job_id}`;
+          return {
+            id: job.job_id, name: file, label, ifc,
+            hasDrawing: (job.artifacts ?? []).includes("plan.dxf"),
+          };
+        });
     },
 
     /**
@@ -96,7 +115,7 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
         .map((job) => ({
           id: job.job_id,
           name: job.source?.filename ?? job.job_id,
-          label: `${job.source?.filename ?? job.job_id} — ${job.status === "ready" ? "waiting for scale" : job.status}`,
+          label: `${job.source?.filename ?? job.job_id} — ${STATUS_WORDS[job.status] ?? job.status}`,
           status: job.status,
           hasModel: (job.artifacts ?? []).includes("plan.ifc"),
         }));
@@ -109,8 +128,8 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
       return new Uint8Array(await response.arrayBuffer());
     },
 
-    async fetchIfc(id) {
-      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}/artifacts/plan.ifc`, init());
+    async fetchIfc(id, name = "plan.ifc") {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}/artifacts/${name}`, init());
       if (!response.ok) throw new SourceError(await detail(response), response.status);
       return new Uint8Array(await response.arrayBuffer());
     },
@@ -175,6 +194,24 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
     },
 
 
+    /** The floors detection proposed for a job that is waiting for them. */
+    async fetchFloors(id) {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}/floors`, init());
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return response.json();
+    },
+
+    /** Every floor decided: `{floors: [{id, approved, name?, elevation_ft?}]}`. */
+    async startFloors(id, decisions) {
+      const response = await fetchImpl(`${trimmed}/v1/jobs/${id}/floors/start`, {
+        method: "POST",
+        headers: { ...init().headers, "content-type": "application/json" },
+        body: JSON.stringify(decisions),
+      });
+      if (!response.ok) throw new SourceError(await detail(response), response.status);
+      return response.json();
+    },
+
     /** One status poll, for the caller's own loop. */
     async jobStatus(id) {
       const response = await fetchImpl(`${trimmed}/v1/jobs/${id}`, init());
@@ -183,9 +220,11 @@ export function createApiSource({ base, token, fetchImpl = globalThis.fetch }) {
       return {
         id: job.job_id,
         status: job.status,
+        kind: job.kind ?? "single",
         acceptance: job.acceptance,
         error: job.error,
         artifacts: job.artifacts ?? [],
+        floors: (job.floors ?? []).map((f) => ({ jobId: f.job_id, status: f.status, name: f.floor?.name ?? "floor" })),
       };
     },
   };

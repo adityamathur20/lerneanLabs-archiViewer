@@ -121,7 +121,8 @@ async function show(relativePath, name) {
 
   let bytes;
   try {
-    bytes = await source.fetchIfc(relativePath);
+    // A building's model is its own IFC; every other job's is plan.ifc.
+    bytes = await source.fetchIfc(relativePath, models.find((m) => m.id === relativePath)?.ifc);
   } catch (error) {
     if (error instanceof SourceError && error.status === 401) {
       el("auth").style.display = "";
@@ -251,8 +252,16 @@ async function watch(jobId) {
   for (;;) {
     const job = await source.jobStatus(jobId);
     const mins = Math.floor((Date.now() - started) / 60000);
-    if (job.status === "succeeded") {
-      progress.textContent = `done in ${mins}m — ${job.acceptance ?? "converted"}`;
+    if (job.status === "awaiting_floors") {
+      // Several floors were found in the drawing: the user decides each one in
+      // the Drawing view, beside the drawing itself.
+      progress.textContent = "several floors were found — opening the drawing to confirm them…";
+      location.href = `/cad/?id=${encodeURIComponent(jobId)}`;
+      return;
+    }
+    if (job.status === "succeeded" || job.status === "partial") {
+      const note = job.status === "partial" ? " — some floors did not finish (see the building's floors)" : "";
+      progress.textContent = `done in ${mins}m — ${job.acceptance ?? "converted"}${note}`;
       history.replaceState(null, "", `/?id=${encodeURIComponent(jobId)}`);
       await loadList();
       return;
@@ -273,7 +282,11 @@ async function watch(jobId) {
       }
       return;
     }
-    progress.textContent = `${job.status}… ${mins}m elapsed (a large drawing can take 30+)`;
+    const floors = job.floors ?? [];
+    const finished = floors.filter((f) => f.status === "succeeded" || f.status === "failed").length;
+    progress.textContent = floors.length
+      ? `${job.status}… ${finished} of ${floors.length} floors finished, ${mins}m elapsed`
+      : `${job.status}… ${mins}m elapsed (a large drawing can take 30+)`;
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 }
