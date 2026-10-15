@@ -90,6 +90,11 @@ def build_classify_command(python: Path, source: Path, classification_out: Path,
     """One layer classification for the whole file, written for every floor run."""
     command = [str(python), "-m", "archiagent", "--dxfFilePath", str(source), "--classify-only",
                "--classification-out", str(classification_out)]
+    # The scale and the declared thicknesses let the classifier use thickness as
+    # evidence about layers before any picture is sent. Without them it classifies as before.
+    command += _scale_args(options)
+    if thicknesses := options.get("wall_thickness_in"):
+        command += ["--wall-thickness", *(_plain(v) for v in thicknesses)]
     if walls := options.get("walls"):
         command += ["--walls", *walls]
     return command

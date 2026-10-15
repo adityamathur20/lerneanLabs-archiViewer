@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from archiagent_service.pipeline import build_command, collect_artifacts
+from archiagent_service.pipeline import build_classify_command, build_command, collect_artifacts
 
 
 def test_command_shells_out_and_never_imports_archiagent():
@@ -122,3 +122,20 @@ def test_archiagent_itself_parses_the_thickness_arguments_the_service_emits():
     done = subprocess.run([command[0], "-c", probe, *command[3:]], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == f"({4.5 / 12}, {9 / 12}) True"
+
+
+def test_the_one_floor_classification_carries_the_scale_and_declared_thicknesses():
+    options = {"scale_from_wall": [{"x1": 0, "y1": 0, "x2": 120, "y2": 0, "length": "10ft"}],
+               "wall_thickness_in": [4.5, 9.0], "walls": None}
+    command = build_classify_command(Path("/py"), Path("/s/a.dxf"), Path("/o/c.json"), options)
+    assert "--classify-only" in command
+    assert command[command.index("--scale-from-wall"):command.index("--scale-from-wall") + 6] == [
+        "--scale-from-wall", "0", "0", "120", "0", "10ft"]
+    assert command[command.index("--wall-thickness"):command.index("--wall-thickness") + 3] == [
+        "--wall-thickness", "4.5", "9.0"]
+    assert "--wall-thickness-exhaustive" not in command
+
+
+def test_the_one_floor_classification_without_options_is_unchanged():
+    command = build_classify_command(Path("/py"), Path("/s/a.dxf"), Path("/o/c.json"), {})
+    assert command[-2:] == ["--classification-out", "/o/c.json"]
